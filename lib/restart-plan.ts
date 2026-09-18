@@ -19,8 +19,9 @@ function positiveInteger(value: unknown, fallback: number) {
   return Number.isInteger(value) && Number(value) > 0 ? Number(value) : fallback;
 }
 
-export function normalizeStartupPlan(input: unknown, availableDirectories: string[]): StartupPlan {
+export function normalizeStartupPlan(input: unknown, availableDirectories: string[], runningDirectories: string[] = []): StartupPlan {
   const available = new Set(availableDirectories);
+  const running = new Set(runningDirectories);
   const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
   const rawProjects = Array.isArray(record.projects) ? record.projects : [];
   if (rawProjects.length > 200) throw new RestartPlanValidationError('启动顺序项目过多');
@@ -53,7 +54,9 @@ export function normalizeStartupPlan(input: unknown, availableDirectories: strin
   let nextOrder = projects.reduce((maximum, project) => Math.max(maximum, project.order), 0) + 1;
   for (const directory of availableDirectories) {
     if (seenDirectories.has(directory)) continue;
-    projects.push({ directory, enabled: false, order: nextOrder++, timeoutSeconds: 180 });
+    // 运行中或部分运行的项目默认 enabled: true
+    const enabled = running.has(directory);
+    projects.push({ directory, enabled, order: nextOrder++, timeoutSeconds: 180 });
   }
 
   projects.sort((left, right) => left.order - right.order || left.directory.localeCompare(right.directory));

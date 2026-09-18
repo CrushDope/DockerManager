@@ -77,20 +77,47 @@ export async function checkLatestImages(force = false) {
       updates.set(image, { image, status: 'checking', checkedAt });
       try {
         const remoteDigest = await remoteManifestDigest(image, mirrors);
-        const imageIds = [
-          ...new Set(
-            containers
-              .filter((container) => container.Image === image)
-              .map((container) => container.ImageID),
-          ),
-        ];
+        if (!remoteDigest) {
+          const state: UpdateState = {
+            image,
+            status: 'error',
+            error: '无法获取远程镜像 digest',
+            checkedAt,
+          };
+          updates.set(image, state);
+          console.error(`[更新检查] 镜像 ${image} 无法获取远程 digest`);
+          return state;
+        }
+        // 收集需要检查的镜像 ID：容器使用的 + 当前 tag 指向的本地镜像
+        const imageIdSet = new Set<string>();
+        containers
+          .filter((container) => container.Image === image)
+          .forEach((container) => imageIdSet.add(container.ImageID));
+        try {
+          const localImage = await dockerRequest<{ Id: string }>(
+            `/images/${encodeURIComponent(image)}/json`,
+          );
+          if (localImage.Id) imageIdSet.add(localImage.Id);
+        } catch {
+          // 该 tag 可能只被容器引用而没有独立的镜像记录
+        }
+        const imageIds = [...imageIdSet];
+        console.log(`[更新检查] 镜像 ${image}:`, {
+          remoteDigest,
+          localImageIds: imageIds,
+        });
         const inspected = await mapConcurrent(imageIds, 2, async (imageId) => {
           const local = await dockerRequest<{ RepoDigests?: string[] }>(
             `/images/${encodeURIComponent(imageId)}/json`,
           );
-          const current = (local.RepoDigests || []).some(
-            (digest) => digest.split('@').at(-1) === remoteDigest,
-          );
+          const localDigests = (local.RepoDigests || []).map(d => d.split('@').at(-1));
+          const current = localDigests.includes(remoteDigest);
+          console.log(`[更新检查] 本地镜像 ${imageId}:`, {
+            repoDigests: local.RepoDigests,
+            extractedDigests: localDigests,
+            remoteDigest,
+            current,
+          });
           return { imageId, current };
         });
         const outdatedImageIds = inspected
@@ -103,6 +130,10 @@ export async function checkLatestImages(force = false) {
           outdatedImageIds,
           checkedAt,
         };
+        console.log(`[更新检查] 镜像 ${image} 结果:`, {
+          status: state.status,
+          outdatedImageIds,
+        });
         updates.set(image, state);
         return state;
       } catch (error) {
@@ -112,6 +143,7 @@ export async function checkLatestImages(force = false) {
           error: error instanceof Error ? error.message : String(error),
           checkedAt,
         };
+        console.error(`[更新检查] 镜像 ${image} 检查失败:`, error);
         updates.set(image, state);
         return state;
       }

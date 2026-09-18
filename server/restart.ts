@@ -119,12 +119,15 @@ async function runtimeProjects(projects: ComposeProject[], inspect: SelfInspect)
 }
 
 async function readSavedPlan(projects: ComposeProject[]) {
+  const runningDirectories = projects
+    .filter((project) => project.status === 'running' || project.status === 'partial')
+    .map((project) => project.directory);
   try {
     const input = JSON.parse(await readFile(config.restartPlanPath, 'utf8'));
-    return normalizeStartupPlan(input, projects.map((project) => project.directory));
+    return normalizeStartupPlan(input, projects.map((project) => project.directory), runningDirectories);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    return normalizeStartupPlan({}, projects.map((project) => project.directory));
+    return normalizeStartupPlan({}, projects.map((project) => project.directory), runningDirectories);
   }
 }
 
@@ -267,9 +270,12 @@ export async function getStartupSettings() {
 
 export async function saveStartupSettings(input: unknown) {
   const projects = await listComposeProjects();
+  const runningDirectories = projects
+    .filter((project) => project.status === 'running' || project.status === 'partial')
+    .map((project) => project.directory);
   let plan: StartupPlan;
   try {
-    plan = normalizeStartupPlan(input, projects.map((project) => project.directory));
+    plan = normalizeStartupPlan(input, projects.map((project) => project.directory), runningDirectories);
   } catch (error) {
     if (error instanceof RestartPlanValidationError) {
       throw new RestartError(error.message, error.statusCode, error.code);

@@ -9,6 +9,7 @@ import {
 } from '../lib/systemd-compose.ts';
 
 void test('normalizes compose startup order and adds newly discovered projects', () => {
+  // 未运行的项目默认 enabled: false
   assert.deepEqual(
     normalizeStartupPlan(
       {
@@ -21,6 +22,24 @@ void test('normalizes compose startup order and adds newly discovered projects',
       projects: [
         { directory: 'database', enabled: true, order: 2, timeoutSeconds: 45 },
         { directory: 'apps', enabled: false, order: 3, timeoutSeconds: 180 },
+      ],
+      continueOnError: true,
+    },
+  );
+  // 运行中的项目默认 enabled: true
+  assert.deepEqual(
+    normalizeStartupPlan(
+      {
+        projects: [{ directory: 'database', enabled: true, order: 2, timeoutSeconds: 45 }],
+        continueOnError: true,
+      },
+      ['database', 'apps'],
+      ['apps'],
+    ),
+    {
+      projects: [
+        { directory: 'database', enabled: true, order: 2, timeoutSeconds: 45 },
+        { directory: 'apps', enabled: true, order: 3, timeoutSeconds: 180 },
       ],
       continueOnError: true,
     },

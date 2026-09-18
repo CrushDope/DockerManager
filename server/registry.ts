@@ -125,17 +125,23 @@ export async function remoteManifestDigest(image: string, mirrors: string[] = []
     reference.registry,
   ];
 
+  console.log(`[Registry] 开始检查镜像 ${image}，尝试 ${registries.length} 个源:`, registries);
+
   let lastError: Error | null = null;
   for (const registry of registries) {
     try {
-      return await tryManifestDigest(reference, registry);
+      console.log(`[Registry] 正在尝试 ${registry}...`);
+      const digest = await tryManifestDigest(reference, registry);
+      console.log(`[Registry] ✓ ${registry} 成功，digest: ${digest}`);
+      return digest;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      console.log(`[Registry] ✗ ${registry} 失败: ${lastError.message}`);
       continue;
     }
   }
 
-  throw new RegistryError(
-    `所有镜像源均无法访问：${lastError?.message || '未知错误'}。镜像：${image}`,
-  );
+  const errorMsg = `所有镜像源均无法访问：${lastError?.message || '未知错误'}。镜像：${image}`;
+  console.error(`[Registry] ${errorMsg}`);
+  throw new RegistryError(errorMsg);
 }
