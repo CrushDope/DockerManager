@@ -52,6 +52,12 @@ decode_file() {
   mv -f "$temporary" "$target"
 }
 
+# 使用 nsenter 进入宿主机的 PID 1 命名空间执行 systemctl，
+# 这样才能访问宿主机的 D-Bus 套接字，避免 "Failed to connect to bus" 错误。
+host_exec() {
+  nsenter -t 1 -m -u -i -n -p -- "$@"
+}
+
 case "$ACTION" in
   install)
     [ -d "$ROOT/run/systemd/system" ] || { echo '宿主机未使用 systemd，无法安装 Docker 启动顺序钩子' >&2; exit 45; }
@@ -59,11 +65,21 @@ case "$ACTION" in
     decode_file "$RESTART_B64" "$INSTALL_DIR/restart-docker.sh"
     decode_file "$UNIT_B64" "$UNIT_DIR/docker-manager-compose-restore.service"
     chmod 644 "$UNIT_DIR/docker-manager-compose-restore.service"
-    chroot "$ROOT" /bin/sh -c 'systemctl daemon-reload && systemctl enable docker-manager-compose-restore.service'
+    if ! host_exec systemctl daemon-reload 2>/tmp/nsenter-err; then
+      err="$(cat /tmp/nsenter-err 2>/dev/null || true)"
+      if echo "$err" | grep -q "Failed to connect to bus"; then
+        echo "无法连接到宿主机 systemd D-Bus，请确认容器以特权模式运行并共享 PID 命名空间（PidMode: host）" >&2
+        echo "详细错误: $err" >&2
+      else
+        echo "$err" >&2
+      fi
+      exit 47
+    fi
+    host_exec systemctl enable docker-manager-compose-restore.service
     ;;
   restart)
     [ -x "$INSTALL_DIR/restart-docker.sh" ] || { echo '请先保存 Compose 启动顺序' >&2; exit 46; }
-    chroot "$ROOT" /bin/sh -c "systemd-run --unit=docker-manager-restart-$JOB_ID /bin/sh /var/lib/docker-manager/restart-docker.sh"
+    host_exec systemd-run --unit="docker-manager-restart-$JOB_ID" /bin/sh /var/lib/docker-manager/restart-docker.sh
     ;;
   *) exit 2 ;;
 esac
@@ -185,6 +201,7 @@ async function runHelper(action: 'install' | 'restart', files?: { startup: strin
         Privileged: true,
         SecurityOpt: ['label=disable'],
         UsernsMode: 'host',
+        PidMode: 'host',
       },
     },
   });
