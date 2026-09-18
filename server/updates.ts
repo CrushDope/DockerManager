@@ -7,13 +7,14 @@ import {
 } from './docker.js';
 import { runCompose, findComposeProject } from './compose.js';
 import { config } from './config.js';
-import { activeMirrors } from './mirrors.js';
-import { normalizeMirrorUrl } from '../lib/mirror-sources.js';
+import { remoteManifestDigest } from './registry.js';
 
 export type UpdateState = {
   image: string;
   status: 'checking' | 'available' | 'current' | 'error';
   targetImageId?: string;
+  remoteDigest?: string;
+  outdatedImageIds?: string[];
   error?: string;
   checkedAt: string;
 };
@@ -26,7 +27,8 @@ export function updateFor(image: string, imageId: string) {
   if (!state) return null;
   return {
     ...state,
-    available: state.status === 'available' && state.targetImageId !== imageId,
+    available:
+      state.status === 'available' && Boolean(state.outdatedImageIds?.includes(imageId)),
   };
 }
 
@@ -64,32 +66,37 @@ export async function checkLatestImages(force = false) {
     return listUpdateStates();
   }
   activeScan = (async () => {
-    const [containers, mirrors] = await Promise.all([
-      dockerRequest<DockerContainer[]>('/containers/json?all=1'),
-      activeMirrors(),
-    ]);
-    const updateSource = normalizeMirrorUrl(config.updateRegistryMirror);
-    const sourceError =
-      mirrors[0] === updateSource
-        ? null
-        : `更新检查源 ${updateSource} 尚未成为宿主机 Docker 的首选镜像源。请到“加速源配置”点击“应用到宿主机”后重新检查`;
+    const containers = await dockerRequest<DockerContainer[]>('/containers/json?all=1');
     const latest = [...new Set(containers.map((item) => item.Image).filter(isLatestImage))];
     return mapConcurrent(latest, 2, async (image) => {
       const checkedAt = new Date().toISOString();
       updates.set(image, { image, status: 'checking', checkedAt });
       try {
-        if (sourceError) throw new Error(sourceError);
-        await pullImage(image);
-        const target = await dockerRequest<{ Id: string }>(
-          `/images/${encodeURIComponent(image)}/json`,
-        );
-        const affected = containers.some(
-          (container) => container.Image === image && container.ImageID !== target.Id,
-        );
+        const remoteDigest = await remoteManifestDigest(image);
+        const imageIds = [
+          ...new Set(
+            containers
+              .filter((container) => container.Image === image)
+              .map((container) => container.ImageID),
+          ),
+        ];
+        const inspected = await mapConcurrent(imageIds, 2, async (imageId) => {
+          const local = await dockerRequest<{ RepoDigests?: string[] }>(
+            `/images/${encodeURIComponent(imageId)}/json`,
+          );
+          const current = (local.RepoDigests || []).some(
+            (digest) => digest.split('@').at(-1) === remoteDigest,
+          );
+          return { imageId, current };
+        });
+        const outdatedImageIds = inspected
+          .filter((local) => !local.current)
+          .map((local) => local.imageId);
         const state: UpdateState = {
           image,
-          status: affected ? 'available' : 'current',
-          targetImageId: target.Id,
+          status: outdatedImageIds.length ? 'available' : 'current',
+          remoteDigest,
+          outdatedImageIds,
           checkedAt,
         };
         updates.set(image, state);

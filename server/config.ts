@@ -11,6 +11,10 @@ export const config = {
   dockerSocket: process.env.DOCKER_SOCKET || '/var/run/docker.sock',
   composeRoot: resolve(process.env.COMPOSE_ROOT || '/composeFile'),
   mirrorStorePath: resolve(process.env.MIRROR_STORE_PATH || '/data/registry-mirrors.json'),
+  restartPlanPath: resolve(process.env.RESTART_PLAN_PATH || '/data/compose-startup.json'),
+  restartStatusPath: resolve(process.env.RESTART_STATUS_PATH || '/data/docker-restart.json'),
+  restartLogPath: resolve(process.env.RESTART_LOG_PATH || '/data/docker-restart.log'),
+  updateProxyPath: resolve(process.env.UPDATE_PROXY_PATH || '/data/update-check-proxy.json'),
   hostDockerConfigPath: resolve(
     process.env.HOST_DOCKER_CONFIG_PATH || '/etc/docker/daemon.json',
   ),
@@ -18,8 +22,8 @@ export const config = {
   adminPassword: process.env.ADMIN_PASSWORD || '',
   updateCacheMs: integer(process.env.UPDATE_CACHE_MINUTES, 10) * 60_000,
   updatePullTimeoutMs: integer(process.env.UPDATE_PULL_TIMEOUT_SECONDS, 120) * 1_000,
-  updateRegistryMirror:
-    process.env.UPDATE_REGISTRY_MIRROR || 'https://docker.nju.edu.cn',
+  updateCheckProxy: process.env.UPDATE_CHECK_PROXY || '',
+  updateCheckNoProxy: process.env.UPDATE_CHECK_NO_PROXY || '',
   bodyLimit: integer(process.env.BODY_LIMIT_BYTES, 2 * 1024 * 1024),
   staticRoot: resolve(process.env.STATIC_ROOT || 'dist/client'),
 };

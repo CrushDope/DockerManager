@@ -20,7 +20,9 @@ docker pull projectdown/docker-manager:latest
 - 在 `/composeFile` 的子目录中创建或引用固定名称的 `docker-compose.yml`
 - 同时执行前端 YAML 校验与 `docker compose config --quiet` 校验
 - 部署、启动、停止和更新 Compose 项目
+- 配置 Compose 启动顺序，并由宿主机 systemd 在每次 Docker 启动后依次恢复
 - 自动读取 Docker Engine 当前镜像源，并支持新增、编辑、启用和停用
+- 为 latest 更新检查单独配置 HTTP/HTTPS 网络代理，不修改 Docker daemon 代理
 - 应用内登录保护，同时保留 HTTP Basic 供 API 脚本使用
 
 ## 部署
@@ -54,13 +56,13 @@ docker compose up -d --build
 容器内：/composeFile/media/jellyfin/docker-compose.yml
 ```
 
-镜像源页面通过 Docker Engine 自动读取当前生效配置。点击“应用到宿主机”时，DockerManager 会通过 Docker Socket 启动一次性特权辅助容器，更新宿主机的 `/etc/docker/daemon.json`，再向 `dockerd` 发送 `SIGHUP` 热重载信号。辅助容器会使用宿主机用户命名空间并关闭 SELinux 标签隔离，以兼容启用了 `userns-remap` 或 SELinux 的服务器；操作结束后会立即删除，不需要长期映射宿主机 Docker 配置目录，也不会重启现有容器。
+镜像源页面通过 Docker Engine 自动读取当前生效配置。“仅热重载”会通过 Docker Socket 启动一次性特权辅助容器，更新宿主机的 `/etc/docker/daemon.json`，再向 `dockerd` 发送 `SIGHUP`；“保存并重启 Docker”会提交宿主机 systemd 重启任务。辅助容器会使用宿主机用户命名空间并关闭 SELinux 标签隔离，以兼容启用了 `userns-remap` 或 SELinux 的服务器，操作结束后立即删除。
 
 如果 Docker 使用了自定义配置文件路径，可在 `.env` 中设置 `HOST_DOCKER_CONFIG_PATH`。Rootless Docker 通常不使用 `/etc/docker/daemon.json`，需要把该变量设置为 rootless daemon 实际读取的配置文件；如果 Docker 禁止宿主机 PID 命名空间或特权容器，则只能在宿主机上手动重载配置。
 
-镜像更新检查会在后台运行。单个镜像仓库超过 `UPDATE_PULL_TIMEOUT_SECONDS`（默认 120 秒）仍未响应时，该镜像会显示超时错误，其他镜像继续检查，页面不会一直锁定在“检查中”。
+镜像更新检查会直接读取镜像仓库的 manifest 摘要，不会为了检查而拉取镜像。可在“镜像管理”页面或通过 `UPDATE_CHECK_PROXY` 配置只供更新检查使用的 HTTP/HTTPS 代理；这个代理不会写入 Docker daemon，也不会影响正式升级时的镜像拉取。单个镜像仓库超过 `UPDATE_PULL_TIMEOUT_SECONDS`（默认 120 秒）仍未响应时，该镜像会显示超时错误，其他镜像继续检查。
 
-镜像更新检查默认要求 `https://docker.nju.edu.cn` 是宿主机 Docker 的首选 `registry-mirrors`。首次部署后进入“加速源配置”，该地址会自动出现在列表首位；点击“应用到宿主机”使其生效后再执行检查。可通过 `UPDATE_REGISTRY_MIRROR` 修改要求使用的检查源。
+在“Compose 项目”页面保存启动顺序后，DockerManager 会在宿主机安装 `docker-manager-compose-restore.service`。该服务挂到 `docker.service`，所以服务器开机、宿主机手动执行 `systemctl start docker` 或 `systemctl restart docker`、以及页面触发重启时都会使用相同顺序。启用接管的项目会改用 `restart=no`，避免 Docker 在 systemd 顺序任务之前并行恢复容器；取消接管时会按 Compose 文件恢复 restart 策略。该功能要求宿主机使用 systemd，并允许 DockerManager 通过 Docker Socket 创建一次性特权辅助容器。
 
 ## 本地开发
 

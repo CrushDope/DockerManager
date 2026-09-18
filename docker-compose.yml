@@ -12,7 +12,8 @@ services:
       ADMIN_PASSWORD: "${NASDOCKER_PASSWORD:?请在 .env 中设置 NASDOCKER_PASSWORD}"
       UPDATE_CACHE_MINUTES: "${UPDATE_CACHE_MINUTES:-10}"
       UPDATE_PULL_TIMEOUT_SECONDS: "${UPDATE_PULL_TIMEOUT_SECONDS:-120}"
-      UPDATE_REGISTRY_MIRROR: "${UPDATE_REGISTRY_MIRROR:-https://docker.nju.edu.cn}"
+      UPDATE_CHECK_PROXY: "${UPDATE_CHECK_PROXY:-}"
+      UPDATE_CHECK_NO_PROXY: "${UPDATE_CHECK_NO_PROXY:-localhost,127.0.0.1}"
       HOST_DOCKER_CONFIG_PATH: "${HOST_DOCKER_CONFIG_PATH:-/etc/docker/daemon.json}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

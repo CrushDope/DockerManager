@@ -7,7 +7,6 @@ import {
   MirrorValidationError as MirrorError,
   normalizeMirrorSources,
   normalizeMirrorUrl,
-  prioritizeMirrorSource,
 } from '../lib/mirror-sources.js';
 
 export { MirrorValidationError as MirrorError } from '../lib/mirror-sources.js';
@@ -90,7 +89,7 @@ fi
 
 let applying: Promise<Awaited<ReturnType<typeof mirrorState>>> | null = null;
 
-export async function activeMirrors() {
+async function activeMirrors() {
   const info = await dockerRequest<{ RegistryConfig?: { Mirrors?: string[] } }>('/info');
   return [...new Set((info.RegistryConfig?.Mirrors || []).map(normalizeMirrorUrl))];
 }
@@ -115,7 +114,7 @@ async function readCatalog(active: string[]) {
   for (const url of active) {
     if (!known.has(url)) sources.push({ id: `engine-${sources.length + 1}`, url, enabled: true });
   }
-  return prioritizeMirrorSource(sources, config.updateRegistryMirror);
+  return sources;
 }
 
 async function writeCatalog(sources: MirrorSource[]) {
@@ -226,7 +225,7 @@ async function runHelper(action: 'apply' | 'rollback' | 'cleanup', mirrors: stri
 }
 
 function equalMirrors(left: string[], right: string[]) {
-  return left.join('\n') === right.join('\n');
+  return [...left].sort().join('\n') === [...right].sort().join('\n');
 }
 
 async function waitForMirrors(expected: string[]) {
@@ -244,12 +243,9 @@ async function waitForMirrors(expected: string[]) {
 async function mirrorState() {
   const active = await activeMirrors();
   const sources = await readCatalog(active);
-  const updateSource = normalizeMirrorUrl(config.updateRegistryMirror);
   return {
     sources: sources.map((source) => ({ ...source, active: active.includes(source.url) })),
     active,
-    updateSource,
-    updateSourceActive: active[0] === updateSource,
     canApply: helperAvailable(),
     hostConfigPath: config.hostDockerConfigPath,
   };
@@ -260,10 +256,7 @@ export async function getMirrors() {
 }
 
 export async function saveMirrors(input: unknown) {
-  const sources = prioritizeMirrorSource(
-    normalizeMirrorSources(input),
-    config.updateRegistryMirror,
-  );
+  const sources = normalizeMirrorSources(input);
   await writeCatalog(sources);
   return mirrorState();
 }
@@ -271,10 +264,7 @@ export async function saveMirrors(input: unknown) {
 export async function applyMirrors(input: unknown) {
   if (applying) return applying;
   applying = (async () => {
-    const sources = prioritizeMirrorSource(
-      normalizeMirrorSources(input),
-      config.updateRegistryMirror,
-    );
+    const sources = normalizeMirrorSources(input);
     const enabled = sources.filter((source) => source.enabled).map((source) => source.url);
     await writeCatalog(sources);
     try {

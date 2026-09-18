@@ -28,7 +28,19 @@ import {
   upgradeContainer,
 } from './updates.js';
 import { applyMirrors, getMirrors, MirrorError, saveMirrors } from './mirrors.js';
+import {
+  getUpdateProxy,
+  saveUpdateProxy,
+  UpdateProxyError,
+} from './update-proxy.js';
+import {
+  getStartupSettings,
+  RestartError,
+  saveStartupSettings,
+  scheduleDockerRestart,
+} from './restart.js';
 import { validateCompose } from '../lib/validate-compose.js';
+import { normalizePortMappings } from '../lib/docker-ports.js';
 
 type Json = Record<string, unknown> | unknown[];
 
@@ -167,12 +179,7 @@ async function containers() {
         service: container.Labels?.['com.docker.compose.service'] || null,
         state,
         status: container.Status,
-        ports: (container.Ports || []).map((port) => ({
-          hostIp: port.IP || null,
-          host: port.PublicPort || null,
-          container: port.PrivatePort,
-          protocol: port.Type.toUpperCase(),
-        })),
+        ports: normalizePortMappings(container.Ports),
         memory: memoryText(memory),
         update: updateFor(container.Image, container.ImageID),
       };
@@ -241,6 +248,13 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     });
     return json(response, 202, { updates: listUpdateStates(), running: true });
   }
+  if (method === 'GET' && url.pathname === '/api/updates/proxy') {
+    return json(response, 200, await getUpdateProxy());
+  }
+  if (method === 'PUT' && url.pathname === '/api/updates/proxy') {
+    const input = await body(request);
+    return json(response, 200, await saveUpdateProxy(input));
+  }
   const containerAction = actionPath(url.pathname);
   if (method === 'POST' && containerAction) {
     if (containerAction.action === 'upgrade') {
@@ -264,6 +278,15 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
   }
   if (method === 'GET' && url.pathname === '/api/compose/projects') {
     return json(response, 200, { projects: await listComposeProjects() });
+  }
+  if (method === 'GET' && url.pathname === '/api/docker/startup-order') {
+    return json(response, 200, await getStartupSettings());
+  }
+  if (method === 'PUT' && url.pathname === '/api/docker/startup-order') {
+    return json(response, 200, await saveStartupSettings(await body(request)));
+  }
+  if (method === 'POST' && url.pathname === '/api/docker/restart') {
+    return json(response, 202, await scheduleDockerRestart());
   }
   if (method === 'GET' && url.pathname === '/api/compose/file') {
     const directory = url.searchParams.get('directory') || '';
@@ -401,11 +424,17 @@ const server = createServer(async (request, response) => {
       error instanceof HttpError ||
       error instanceof DockerError ||
       error instanceof ComposeError ||
-      error instanceof MirrorError
+      error instanceof MirrorError ||
+      error instanceof UpdateProxyError ||
+      error instanceof RestartError
         ? error.statusCode
         : 500;
     const code =
-      error instanceof HttpError || error instanceof ComposeError || error instanceof MirrorError
+      error instanceof HttpError ||
+      error instanceof ComposeError ||
+      error instanceof MirrorError ||
+      error instanceof UpdateProxyError ||
+      error instanceof RestartError
         ? error.code
         : 'INTERNAL_ERROR';
     const details = error instanceof HttpError || error instanceof ComposeError ? error.details : undefined;
