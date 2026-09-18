@@ -1,6 +1,16 @@
-# NasDocker
+# DockerManager
 
-NasDocker 运行在 Docker 容器中，通过宿主机的 Docker Socket 管理容器、镜像和 Compose 项目。
+DockerManager 运行在 Docker 容器中，通过宿主机的 Docker Socket 管理容器、镜像和 Compose 项目。
+
+## Docker Hub 镜像
+
+GitHub Actions 会在 `main` 分支更新时构建 `linux/amd64` 和 `linux/arm64` 镜像，并推送为 `projectdown/docker-manager:latest`。推送 `v1.2.3` 形式的 Git 标签时，还会发布 `1.2.3` 和 `1.2` 标签；工作流也支持手动运行。
+
+在 GitHub 仓库的 `Settings > Secrets and variables > Actions` 中添加仓库密钥 `DOCKERHUB_TOKEN`，值使用 Docker Hub 为 `projectdown` 账号创建的 Personal Access Token。不要使用账号密码，也不要把令牌写入 `.env` 或提交到仓库。
+
+```bash
+docker pull projectdown/docker-manager:latest
+```
 
 当前功能：
 
@@ -35,7 +45,7 @@ docker compose up -d --build
 |---|---|---|
 | `/var/run/docker.sock` | `/var/run/docker.sock` | Docker Engine API |
 | `COMPOSE_HOST_DIR` | `/composeFile` | Compose 项目文件 |
-| Docker volume `nasdocker-data` | `/data` | NasDocker 镜像源列表等持久数据 |
+| Docker volume `nasdocker-data` | `/data` | DockerManager 镜像源列表等持久数据 |
 
 例如页面中选择子目录 `media/jellyfin`，文件实际保存在：
 
@@ -44,7 +54,7 @@ docker compose up -d --build
 容器内：/composeFile/media/jellyfin/docker-compose.yml
 ```
 
-镜像源页面通过 Docker Engine 自动读取当前生效配置。点击“应用到宿主机”时，NasDocker 会通过 Docker Socket 启动一次性辅助容器，更新宿主机的 `/etc/docker/daemon.json`，再向 `dockerd` 发送 `SIGHUP` 热重载信号。辅助容器会在操作结束后删除，不需要映射宿主机 Docker 配置目录，也不会重启现有容器。
+镜像源页面通过 Docker Engine 自动读取当前生效配置。点击“应用到宿主机”时，DockerManager 会通过 Docker Socket 启动一次性辅助容器，更新宿主机的 `/etc/docker/daemon.json`，再向 `dockerd` 发送 `SIGHUP` 热重载信号。辅助容器会在操作结束后删除，不需要映射宿主机 Docker 配置目录，也不会重启现有容器。
 
 如果 Docker 使用了自定义配置文件路径，可在 `.env` 中设置 `HOST_DOCKER_CONFIG_PATH`。
 
