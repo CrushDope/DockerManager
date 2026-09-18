@@ -8,6 +8,7 @@ import {
 import { runCompose, findComposeProject } from './compose.js';
 import { config } from './config.js';
 import { remoteManifestDigest } from './registry.js';
+import { activeMirrors } from './mirrors.js';
 
 export type UpdateState = {
   image: string;
@@ -66,13 +67,16 @@ export async function checkLatestImages(force = false) {
     return listUpdateStates();
   }
   activeScan = (async () => {
-    const containers = await dockerRequest<DockerContainer[]>('/containers/json?all=1');
+    const [containers, mirrors] = await Promise.all([
+      dockerRequest<DockerContainer[]>('/containers/json?all=1'),
+      activeMirrors(),
+    ]);
     const latest = [...new Set(containers.map((item) => item.Image).filter(isLatestImage))];
     return mapConcurrent(latest, 2, async (image) => {
       const checkedAt = new Date().toISOString();
       updates.set(image, { image, status: 'checking', checkedAt });
       try {
-        const remoteDigest = await remoteManifestDigest(image);
+        const remoteDigest = await remoteManifestDigest(image, mirrors);
         const imageIds = [
           ...new Set(
             containers

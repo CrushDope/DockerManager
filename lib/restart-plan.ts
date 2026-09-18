@@ -53,7 +53,7 @@ export function normalizeStartupPlan(input: unknown, availableDirectories: strin
   let nextOrder = projects.reduce((maximum, project) => Math.max(maximum, project.order), 0) + 1;
   for (const directory of availableDirectories) {
     if (seenDirectories.has(directory)) continue;
-    projects.push({ directory, enabled: true, order: nextOrder++, timeoutSeconds: 180 });
+    projects.push({ directory, enabled: false, order: nextOrder++, timeoutSeconds: 180 });
   }
 
   projects.sort((left, right) => left.order - right.order || left.directory.localeCompare(right.directory));

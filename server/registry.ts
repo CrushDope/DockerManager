@@ -79,9 +79,11 @@ async function manifestRequest(url: string, authorization?: string): Promise<Res
   });
 }
 
-export async function remoteManifestDigest(image: string) {
-  const reference = parseRegistryReference(image);
-  const url = `${reference.protocol}//${reference.registry}/v2/${reference.repository}/manifests/${encodeURIComponent(reference.tag)}`;
+async function tryManifestDigest(
+  reference: RegistryReference,
+  registryHost: string,
+): Promise<string> {
+  const url = `${reference.protocol}//${registryHost}/v2/${reference.repository}/manifests/${encodeURIComponent(reference.tag)}`;
   let authorization: string | undefined;
   let response = await manifestRequest(url);
   if (response.status === 401) {
@@ -93,7 +95,7 @@ export async function remoteManifestDigest(image: string) {
   }
   if (!response.ok && response.status !== 405) {
     await response.body?.cancel();
-    throw new RegistryError(`镜像仓库返回 HTTP ${response.status}：${image}`);
+    throw new RegistryError(`镜像仓库返回 HTTP ${response.status}`);
   }
   const headerDigest = response.headers.get('docker-content-digest');
   await response.body?.cancel();
@@ -106,7 +108,7 @@ export async function remoteManifestDigest(image: string) {
       ...(authorization ? { Authorization: authorization } : {}),
     },
   });
-  if (!fallback.ok) throw new RegistryError(`无法读取镜像清单摘要：${image}`);
+  if (!fallback.ok) throw new RegistryError(`无法读取镜像清单摘要`);
   const fallbackDigest = fallback.headers.get('docker-content-digest');
   if (fallbackDigest) {
     await fallback.body?.cancel();
@@ -114,4 +116,26 @@ export async function remoteManifestDigest(image: string) {
   }
   const bytes = Buffer.from(await fallback.arrayBuffer());
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+export async function remoteManifestDigest(image: string, mirrors: string[] = []) {
+  const reference = parseRegistryReference(image);
+  const registries = [
+    ...mirrors.map((mirror) => new URL(mirror).host),
+    reference.registry,
+  ];
+
+  let lastError: Error | null = null;
+  for (const registry of registries) {
+    try {
+      return await tryManifestDigest(reference, registry);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+
+  throw new RegistryError(
+    `所有镜像源均无法访问：${lastError?.message || '未知错误'}。镜像：${image}`,
+  );
 }

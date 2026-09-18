@@ -90,7 +90,7 @@ fi
 
 let applying: Promise<Awaited<ReturnType<typeof mirrorState>>> | null = null;
 
-async function activeMirrors() {
+export async function activeMirrors() {
   const info = await dockerRequest<{ RegistryConfig?: { Mirrors?: string[] } }>('/info');
   return [...new Set((info.RegistryConfig?.Mirrors || []).map(normalizeMirrorUrl))];
 }

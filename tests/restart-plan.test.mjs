@@ -20,7 +20,7 @@ void test('normalizes compose startup order and adds newly discovered projects',
     {
       projects: [
         { directory: 'database', enabled: true, order: 2, timeoutSeconds: 45 },
-        { directory: 'apps', enabled: true, order: 3, timeoutSeconds: 180 },
+        { directory: 'apps', enabled: false, order: 3, timeoutSeconds: 180 },
       ],
       continueOnError: true,
     },

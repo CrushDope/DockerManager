@@ -223,7 +223,7 @@ export default function Home() {
   }
   async function applyMirrorConfig(restart = false) {
     if (restart && !startupSettings?.installed) {
-      setNotice({ type: 'error', text: '请先到“启动顺序”页面保存并启用宿主机启动钩子' });
+      setNotice({ type: 'error', text: '请先到"启动顺序"页面保存并启用宿主机启动钩子' });
       return;
     }
     setBusy('mirrors');
@@ -312,12 +312,12 @@ export default function Home() {
     <div className="main-shell"><header className="topbar"><div>工作空间 <ChevronRight size={14} /> <span>{page}</span></div><div><span className="top-host"><span className={system ? 'online-dot' : 'offline-dot'} />{system?.name || '未连接'}</span></div></header>
       <main><h1 className="sr-only">{page}</h1>{page === 'Compose 项目' && <div className="compose-page-actions"><Button onClick={startCompose}><Plus />部署 Compose</Button></div>}{page === '启动顺序' && <div className="compose-page-actions"><Button variant="outline" disabled={!startupSettings?.installed || busy === 'docker-restart'} onClick={() => void restartDocker()}><Power />{busy === 'docker-restart' ? '正在提交…' : '重启 Docker'}</Button></div>}
         {page === '容器管理' && <><section className="metrics"><Metric icon={<Box />} label="全部容器" value={containers.length} detail="当前宿主机" /><Metric icon={<Activity />} label="运行中" value={running} detail="服务运行正常" green /><Metric icon={<Pause />} label="暂停 / 停止" value={containers.length - running} detail="可随时恢复" /><Metric icon={<Package />} label="可升级镜像" value={checking ? '—' : updates.length} detail="仅检查 latest" blue /></section>
-          <section className="updates-panel"><div className="section-line"><div className="section-title"><span className="update-symbol"><ArrowUpRight size={20} /></span><h2>{checking ? '正在检查 latest 清单' : updates.length ? '发现可升级镜像' : updateErrors.length ? `${updateErrors.length} 个镜像检查失败` : 'latest 镜像均为最新'}</h2><span className="count-badge">{checking ? '…' : updates.length}</span></div><button className="text-button" disabled={checking} onClick={() => void checkUpdates(true)}><RefreshCw size={14} className={checking ? 'spin' : ''} />{checking ? '检查中' : '重新检查'}</button></div><p className="section-description">通过镜像仓库 API 读取 latest 摘要并与本地镜像比较，不会在检查阶段拉取镜像。</p><div className="update-cards">{updates.map((item, index) => <article className="update-card" key={item.id}><AppIcon name={item.name} color={colors[index % colors.length]} /><div className="update-info"><b>{imageName(item.image)}<span className="tag">latest</span></b><small>关联容器：{item.name}</small></div><button className="update-action" onClick={() => setModal({ kind: 'upgrade', container: item })}>升级<ArrowUpRight size={14} /></button></article>)}{!checking && !updates.length && !updateErrors.length && <p className="success-inline"><Check size={17} />当前容器使用的 latest 镜像均为最新</p>}{!checking && !!updateErrors.length && <p className="error-text">部分镜像检查失败，请在“镜像管理”中查看原因。</p>}</div><div className="update-foot"><span><span className="online-dot" />进入页面自动检查</span><span>固定版本标签不参与检查</span></div></section>
+          <section className="updates-panel"><div className="section-line"><div className="section-title"><span className="update-symbol"><ArrowUpRight size={20} /></span><h2>{checking ? '正在检查 latest 清单' : updates.length ? '发现可升级镜像' : updateErrors.length ? `${updateErrors.length} 个镜像检查失败` : 'latest 镜像均为最新'}</h2><span className="count-badge">{checking ? '…' : updates.length}</span></div><button className="text-button" disabled={checking} onClick={() => void checkUpdates(true)}><RefreshCw size={14} className={checking ? 'spin' : ''} />{checking ? '检查中' : '重新检查'}</button></div><p className="section-description">通过镜像仓库 API 读取 latest 摘要并与本地镜像比较，不会在检查阶段拉取镜像。</p><div className="update-cards">{updates.map((item, index) => <article className="update-card" key={item.id}><AppIcon name={item.name} color={colors[index % colors.length]} /><div className="update-info"><b>{imageName(item.image)}<span className="tag">latest</span></b><small>关联容器：{item.name}</small></div><button className="update-action" onClick={() => setModal({ kind: 'upgrade', container: item })}>升级<ArrowUpRight size={14} /></button></article>)}{!checking && !updates.length && !updateErrors.length && <p className="success-inline"><Check size={17} />当前容器使用的 latest 镜像均为最新</p>}{!checking && !!updateErrors.length && <p className="error-text">部分镜像检查失败，请在"镜像管理"中查看原因。</p>}</div><div className="update-foot"><span><span className="online-dot" />进入页面自动检查</span><span>固定版本标签不参与检查</span></div></section>
           <section className="container-panel"><div className="list-heading"><div className="section-title"><h2>容器列表</h2><span className="muted">{containers.length} 个容器</span></div><div className="search"><Search size={16} /><Input aria-label="搜索容器" placeholder="搜索容器、镜像或项目…" value={query} onChange={(event) => setQuery(event.target.value)} /></div></div><div className="filter-line"><div className="filters">{['全部', '运行中', '已暂停', '已停止'].map((state) => <button key={state} onClick={() => setFilter(state)} className={filter === state ? 'selected' : ''}>{state}<span>{state === '全部' ? containers.length : containers.filter((item) => stateText(item.state) === state).length}</span></button>)}</div><span className="port-legend"><Network size={14} />宿主机端口 <ArrowRight size={13} /> 容器端口</span></div><ContainerTable items={visible} busy={busy} loading={loading} action={containerAction} restart={(item) => setModal({ kind: 'restart', container: item })} /><div className="table-footer">显示 {visible.length} / {containers.length} 个容器<span><span className={system ? 'online-dot' : 'offline-dot'} />宿主机实时状态</span></div></section></>}
         {page === '镜像管理' && <div className="image-page-stack"><section className="settings-panel update-proxy-panel"><div className="settings-heading"><div><div className="section-title"><Network /><h2>更新检查网络代理</h2></div><p>代理只用于 DockerManager 访问镜像仓库清单，不会修改 Docker daemon，也不会自动作用于镜像升级拉取。</p></div><Button disabled={busy === 'update-proxy'} onClick={() => void saveUpdateProxy()}>{busy === 'update-proxy' ? '正在保存…' : '保存代理配置'}</Button></div><label className="proxy-enabled"><input type="checkbox" checked={updateProxy.enabled} onChange={(event) => setUpdateProxy((value) => ({ ...value, enabled: event.target.checked }))} /><span>启用更新检查代理</span></label><div className="proxy-fields"><label htmlFor="update-proxy-url">HTTP/HTTPS 代理地址<Input id="update-proxy-url" value={updateProxy.url} onChange={(event) => setUpdateProxy((value) => ({ ...value, url: event.target.value }))} placeholder="http://127.0.0.1:7890" /></label><label htmlFor="update-proxy-bypass">不使用代理的地址<Input id="update-proxy-bypass" value={updateProxy.noProxy} onChange={(event) => setUpdateProxy((value) => ({ ...value, noProxy: event.target.value }))} placeholder="localhost,127.0.0.1,.example.com" /></label></div></section><section className="container-panel"><div className="list-heading"><h2>本地镜像 <span className="muted">{images.length}</span></h2><Button variant="outline" disabled={checking} onClick={() => void checkUpdates(true)}><RefreshCw className={checking ? 'spin' : ''} />{checking ? '检查中' : '检查 latest 更新'}</Button></div><div className="image-list">{images.map((item, index) => <div className="image-row" key={`${item.id}-${item.tag}`}><AppIcon name={item.tag} color={colors[index % colors.length]} /><div className="grow"><b>{item.tag}</b><small>{item.containers.length ? `使用容器：${item.containers.join('、')}` : '未被容器使用'} · {formatBytes(item.size)}</small></div><span className={item.update?.status === 'error' ? 'error-text' : 'muted'}>{!isLatest(item.tag) ? '固定版本' : item.update?.status === 'checking' ? '检查中' : item.update?.available ? '有更新可用' : item.update?.status === 'error' ? item.update.error : checking ? '等待检查' : '已是最新'}</span></div>)}</div></section></div>}
-        {page === 'Compose 项目' && <div className="compose-grid">{projects.map((item) => <section className="compose-card" key={`${item.name}:${item.file}`}><div className="compose-icon"><Layers /></div><span className={`status ${item.status === 'running' ? 'running' : item.status === 'partial' ? 'paused' : 'stopped'}`}><i />{item.status === 'running' ? '运行中' : item.status === 'partial' ? '部分运行' : '已停止'}</span><h2>{item.name}</h2><p>{item.services.length} 个服务 · Docker Compose</p><code className="compose-file-path">/composeFile/{item.directory}/docker-compose.yml</code><div className="compose-services">{item.services.length ? item.services.map((service) => <span key={service}><span className={item.status === 'stopped' ? 'offline-dot' : 'online-dot'} />{service}</span>) : <span className="muted">当前没有运行中的服务</span>}</div><div className="compose-actions"><Button variant="outline" disabled={busy === `view:${item.name}`} onClick={() => void openProject(item)}>查看配置</Button>{item.status === 'stopped' ? <Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'start')}>启动</Button> : <Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'stop')}>停止</Button>}<Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'pull-up')}>更新</Button></div></section>)}{!loading && !projects.length && <div className="empty-card"><Layers size={30} /><b>还没有 Compose 项目</b><span>点击右上角“部署 Compose”创建第一个项目。</span></div>}</div>}
+        {page === 'Compose 项目' && <div className="compose-grid">{projects.map((item) => <section className="compose-card" key={`${item.name}:${item.file}`}><div className="compose-icon"><Layers /></div><span className={`status ${item.status === 'running' ? 'running' : item.status === 'partial' ? 'paused' : 'stopped'}`}><i />{item.status === 'running' ? '运行中' : item.status === 'partial' ? '部分运行' : '已停止'}</span><h2>{item.name}</h2><p>{item.services.length} 个服务 · Docker Compose</p><code className="compose-file-path">/composeFile/{item.directory}/docker-compose.yml</code><div className="compose-services">{item.services.length ? item.services.map((service) => <span key={service}><span className={item.status === 'stopped' ? 'offline-dot' : 'online-dot'} />{service}</span>) : <span className="muted">当前没有运行中的服务</span>}</div><div className="compose-actions"><Button variant="outline" disabled={busy === `view:${item.name}`} onClick={() => void openProject(item)}>查看配置</Button>{item.status === 'stopped' ? <Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'start')}>启动</Button> : <Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'stop')}>停止</Button>}<Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'pull-up')}>更新</Button></div></section>)}{!loading && !projects.length && <div className="empty-card"><Layers size={30} /><b>还没有 Compose 项目</b><span>点击右上角"部署 Compose"创建第一个项目。</span></div>}</div>}
         {page === '启动顺序' && <StartupOrderPanel projects={projects} settings={startupSettings} busy={busy} setSettings={setStartupSettings} move={moveStartupProject} save={saveStartupOrder} />}
-        {page === '加速源配置' && <section className="settings-panel mirror-manager"><div className="settings-heading"><div><div className="section-title"><Zap /><h2>镜像加速源</h2></div><p>已自动读取宿主机 Docker 当前生效的配置。你可以添加、编辑、启用或停用镜像源。</p></div><div className="mirror-apply-actions"><Button variant="outline" disabled={!mirrorCanApply || busy === 'mirrors'} onClick={() => void applyMirrorConfig(false)}>仅热重载</Button><Button disabled={!mirrorCanApply || busy === 'mirrors'} onClick={() => void applyMirrorConfig(true)}>{busy === 'mirrors' ? '正在应用…' : '保存并重启 Docker'}</Button></div></div><div className="engine-mirror-state"><div><span className="online-dot" /><b>Docker Engine 当前生效</b></div>{activeMirrors.length ? <div className="active-mirror-tags">{activeMirrors.map((url) => <code key={url}>{url}</code>)}</div> : <span className="muted">当前未启用镜像加速源</span>}</div><div className="mirror-add"><Input aria-label="新镜像源地址" value={newMirror} onChange={(event) => setNewMirror(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addMirror(); }} placeholder="https://mirror.example.com" /><Button variant="outline" onClick={addMirror}><Plus />添加镜像源</Button></div><div className="mirror-list">{mirrorSources.map((source) => <article className={`mirror-source ${source.active ? 'is-active' : ''}`} key={source.id}><span className={source.active ? 'online-dot' : 'offline-dot'} /><Input aria-label={`编辑镜像源 ${source.url}`} value={source.url} onChange={(event) => setMirrorSources((sources) => sources.map((item) => item.id === source.id ? { ...item, url: event.target.value } : item))} /><label className="mirror-toggle"><input type="checkbox" checked={source.enabled} onChange={(event) => setMirrorSources((sources) => sources.map((item) => item.id === source.id ? { ...item, enabled: event.target.checked } : item))} /><span>{source.enabled ? '已启用' : '未启用'}</span></label>{source.active && <span className="engine-active">Engine 生效中</span>}<Button variant="ghost" size="icon" aria-label={`删除镜像源 ${source.url}`} onClick={() => setMirrorSources((sources) => sources.filter((item) => item.id !== source.id))}><Trash2 /></Button></article>)}{!mirrorSources.length && <div className="empty-mirrors"><Network /><b>还没有镜像源</b><span>添加地址后启用，并应用到宿主机。</span></div>}</div><div className="setting-note"><CircleHelp size={18} /><span>热重载不会中断容器；“保存并重启 Docker”会先停止受管 Compose 项目，再由宿主机按保存顺序启动。</span></div>{!mirrorCanApply && <p className="field-error">{mirrorApplyReason || '当前运行环境无法自动应用镜像源配置。'}</p>}{mirrorCanApply && startupSettings && !startupSettings.installed && <p className="field-error">重启前请先到“启动顺序”页面保存并启用宿主机启动钩子。</p>}</section>}
+        {page === '加速源配置' && <section className="settings-panel mirror-manager"><div className="settings-heading"><div><div className="section-title"><Zap /><h2>镜像加速源</h2></div><p>已自动读取宿主机 Docker 当前生效的配置。你可以添加、编辑、启用或停用镜像源。</p></div><div className="mirror-apply-actions"><Button variant="outline" disabled={!mirrorCanApply || busy === 'mirrors'} onClick={() => void applyMirrorConfig(false)}>仅热重载</Button><Button disabled={!mirrorCanApply || busy === 'mirrors'} onClick={() => void applyMirrorConfig(true)}>{busy === 'mirrors' ? '正在应用…' : '保存并重启 Docker'}</Button></div></div><div className="engine-mirror-state"><div><span className="online-dot" /><b>Docker Engine 当前生效</b></div>{activeMirrors.length ? <div className="active-mirror-tags">{activeMirrors.map((url) => <code key={url}>{url}</code>)}</div> : <span className="muted">当前未启用镜像加速源</span>}</div><div className="mirror-add"><Input aria-label="新镜像源地址" value={newMirror} onChange={(event) => setNewMirror(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addMirror(); }} placeholder="https://mirror.example.com" /><Button variant="outline" onClick={addMirror}><Plus />添加镜像源</Button></div><div className="mirror-list">{mirrorSources.map((source) => <article className={`mirror-source ${source.active ? 'is-active' : ''}`} key={source.id}><span className={source.active ? 'online-dot' : 'offline-dot'} /><Input aria-label={`编辑镜像源 ${source.url}`} value={source.url} onChange={(event) => setMirrorSources((sources) => sources.map((item) => item.id === source.id ? { ...item, url: event.target.value } : item))} /><label className="mirror-toggle"><input type="checkbox" checked={source.enabled} onChange={(event) => setMirrorSources((sources) => sources.map((item) => item.id === source.id ? { ...item, enabled: event.target.checked } : item))} /><span>{source.enabled ? '已启用' : '未启用'}</span></label>{source.active && <span className="engine-active">Engine 生效中</span>}<Button variant="ghost" size="icon" aria-label={`删除镜像源 ${source.url}`} onClick={() => setMirrorSources((sources) => sources.filter((item) => item.id !== source.id))}><Trash2 /></Button></article>)}{!mirrorSources.length && <div className="empty-mirrors"><Network /><b>还没有镜像源</b><span>添加地址后启用，并应用到宿主机。</span></div>}</div><div className="setting-note"><CircleHelp size={18} /><span>热重载不会中断容器；"保存并重启 Docker"会先停止受管 Compose 项目，再由宿主机按保存顺序启动。</span></div>{!mirrorCanApply && <p className="field-error">{mirrorApplyReason || '当前运行环境无法自动应用镜像源配置。'}</p>}{mirrorCanApply && startupSettings && !startupSettings.installed && <p className="field-error">重启前请先到"启动顺序"页面保存并启用宿主机启动钩子。</p>}</section>}
         <footer className="main-footer"><span><Server size={14} />{system?.name || 'Docker host'} <span className="divider">/</span>{system?.architecture || '—'}</span><span>DockerManager <span className="divider">·</span> 宿主机容器管理</span></footer>
       </main></div>
     <OperationDialog modal={modal} setModal={setModal} project={project} setProject={setProject} directory={directory} setDirectory={setDirectory} compose={compose} setCompose={setCompose} existing={existing} checkingFile={checkingFile} fileChoice={fileChoice} setFileChoice={setFileChoice} projectValid={projectValid} directoryValid={directoryValid} filePath={filePath} composeIssues={composeIssues} busy={busy} deploy={deploy} action={containerAction} />
@@ -340,14 +340,228 @@ function StartupOrderPanel({
   move: (directory: string, direction: -1 | 1) => void;
   save: () => Promise<void>;
 }) {
+  const [draggedItem, setDraggedItem] = useState<string | null>(null);
+  const [dragOverItem, setDragOverItem] = useState<string | null>(null);
+
   const records = new Map(projects.map((project) => [project.directory, project]));
   const ordered = [...(settings?.projects || [])].sort((left, right) => left.order - right.order);
-  return <section className="settings-panel startup-order-panel"><div className="settings-heading"><div><div className="section-title"><Power /><h2>Docker 启动与 Compose 顺序</h2></div><p>保存后会安装宿主机 systemd 钩子。服务器开机、宿主机手动启动或重启 Docker、页面重启 Docker 时，都会按此顺序启动。</p></div><Button disabled={!settings || busy === 'startup-order' || !ordered.length} onClick={() => void save()}>{busy === 'startup-order' ? '正在接管…' : settings?.installed ? '保存配置' : '保存并启用'}</Button></div>
-    <div className="startup-warning"><CircleHelp size={18} /><span>启用的项目由 systemd 接管，现有容器的原生 restart 策略会改为 <code>no</code>，避免 Docker 抢先并行启动。取消接管时会按 Compose 文件恢复 restart 策略。</span></div>
-    <div className="startup-list">{ordered.map((preference, index) => { const project = records.get(preference.directory); return <article className={`startup-row ${preference.enabled ? '' : 'disabled'}`} key={preference.directory}><span className="startup-number">{index + 1}</span><div className="startup-project"><b>{project?.name || preference.directory}</b><small>/composeFile/{preference.directory}/docker-compose.yml</small></div><label className="startup-toggle"><input type="checkbox" checked={preference.enabled} onChange={(event) => setSettings((current) => current ? { ...current, projects: current.projects.map((item) => item.directory === preference.directory ? { ...item, enabled: event.target.checked } : item) } : current)} /><span>{preference.enabled ? '接管' : '忽略'}</span></label><label className="startup-timeout" htmlFor={`startup-timeout-${index}`}>等待<Input id={`startup-timeout-${index}`} type="number" min={10} max={1800} value={preference.timeoutSeconds} onChange={(event) => setSettings((current) => current ? { ...current, projects: current.projects.map((item) => item.directory === preference.directory ? { ...item, timeoutSeconds: Number(event.target.value) || 180 } : item) } : current)} /><span>秒</span></label><div className="startup-move"><IconButton label={`上移 ${project?.name || preference.directory}`} disabled={index === 0} onClick={() => move(preference.directory, -1)}><ArrowUp /></IconButton><IconButton label={`下移 ${project?.name || preference.directory}`} disabled={index === ordered.length - 1} onClick={() => move(preference.directory, 1)}><ArrowDown /></IconButton></div></article>; })}{settings && !ordered.length && <div className="empty">暂无可排序的 Compose 项目。</div>}{!settings && <div className="empty"><RefreshCw className="spin" />正在读取启动顺序…</div>}</div>
-    <div className="startup-footer"><label><input type="checkbox" checked={settings?.continueOnError || false} onChange={(event) => setSettings((current) => current ? { ...current, continueOnError: event.target.checked } : current)} />某个项目启动失败后继续启动后续项目</label><span>{settings?.status?.state ? `最近状态：${settings.status.state}${settings.status.project ? ` · ${settings.status.project}` : ''}` : settings?.installed ? `系统服务：${settings.integration}` : '系统服务：尚未安装'}</span></div>
-    {!settings?.canInstall && settings && <p className="field-error">当前环境未检测到可用的 systemd 宿主机集成。你仍可点击“保存并启用”执行实际安装检查；Docker Desktop 和 rootless Docker 不支持此功能。</p>}
-  </section>;
+  const enabled = ordered.filter((item) => item.enabled);
+  const disabled = ordered.filter((item) => !item.enabled);
+
+  function handleDragStart(directory: string) {
+    setDraggedItem(directory);
+  }
+
+  function handleDragOver(event: React.DragEvent, directory: string) {
+    event.preventDefault();
+    setDragOverItem(directory);
+  }
+
+  function handleDrop(event: React.DragEvent, targetDirectory: string) {
+    event.preventDefault();
+    if (!draggedItem || draggedItem === targetDirectory) {
+      setDraggedItem(null);
+      setDragOverItem(null);
+      return;
+    }
+
+    setSettings((current) => {
+      if (!current) return current;
+      const sourceItem = current.projects.find((item) => item.directory === draggedItem);
+      const targetItem = current.projects.find((item) => item.directory === targetDirectory);
+      if (!sourceItem || !targetItem || sourceItem.enabled !== targetItem.enabled) {
+        return current;
+      }
+
+      const group = current.projects.filter((item) => item.enabled === sourceItem.enabled).sort((a, b) => a.order - b.order);
+      const sourceIndex = group.findIndex((item) => item.directory === draggedItem);
+      const targetIndex = group.findIndex((item) => item.directory === targetDirectory);
+
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+
+      const reordered = [...group];
+      const [removed] = reordered.splice(sourceIndex, 1);
+      reordered.splice(targetIndex, 0, removed);
+
+      const otherGroup = current.projects.filter((item) => item.enabled !== sourceItem.enabled);
+      const allProjects = sourceItem.enabled
+        ? [...reordered, ...otherGroup]
+        : [...otherGroup, ...reordered];
+
+      return {
+        ...current,
+        projects: allProjects.map((item, index) => ({ ...item, order: index + 1 })),
+      };
+    });
+
+    setDraggedItem(null);
+    setDragOverItem(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedItem(null);
+    setDragOverItem(null);
+  }
+
+  function renderProjectRow(preference: StartupPreference, index: number, isEnabled: boolean) {
+    const project = records.get(preference.directory);
+    const isDragging = draggedItem === preference.directory;
+    const isDragOver = dragOverItem === preference.directory;
+
+    return (
+      <article
+        className={`startup-row ${preference.enabled ? '' : 'disabled'} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
+        key={preference.directory}
+        draggable
+        onDragStart={() => handleDragStart(preference.directory)}
+        onDragOver={(e) => handleDragOver(e, preference.directory)}
+        onDrop={(e) => handleDrop(e, preference.directory)}
+        onDragEnd={handleDragEnd}
+      >
+        <span className="startup-number">{index + 1}</span>
+        <div className="startup-project">
+          <b>{project?.name || preference.directory}</b>
+          <small>/composeFile/{preference.directory}/docker-compose.yml</small>
+        </div>
+        <label className="startup-toggle">
+          <input
+            type="checkbox"
+            checked={preference.enabled}
+            onChange={(event) =>
+              setSettings((current) =>
+                current
+                  ? {
+                      ...current,
+                      projects: current.projects.map((item) =>
+                        item.directory === preference.directory ? { ...item, enabled: event.target.checked } : item
+                      ),
+                    }
+                  : current
+              )
+            }
+          />
+          <span>{preference.enabled ? '接管' : '忽略'}</span>
+        </label>
+        <label className="startup-timeout" htmlFor={`startup-timeout-${preference.directory}`}>
+          等待
+          <Input
+            id={`startup-timeout-${preference.directory}`}
+            type="number"
+            min={10}
+            max={1800}
+            value={preference.timeoutSeconds}
+            onChange={(event) =>
+              setSettings((current) =>
+                current
+                  ? {
+                      ...current,
+                      projects: current.projects.map((item) =>
+                        item.directory === preference.directory
+                          ? { ...item, timeoutSeconds: Number(event.target.value) || 180 }
+                          : item
+                      ),
+                    }
+                  : current
+              )
+            }
+          />
+          <span>秒</span>
+        </label>
+        <div className="startup-move">
+          <IconButton
+            label={`上移 ${project?.name || preference.directory}`}
+            disabled={index === 0}
+            onClick={() => move(preference.directory, -1)}
+          >
+            <ArrowUp />
+          </IconButton>
+          <IconButton
+            label={`下移 ${project?.name || preference.directory}`}
+            disabled={index === (isEnabled ? enabled : disabled).length - 1}
+            onClick={() => move(preference.directory, 1)}
+          >
+            <ArrowDown />
+          </IconButton>
+        </div>
+      </article>
+    );
+  }
+
+  return (
+    <section className="settings-panel startup-order-panel">
+      <div className="settings-heading">
+        <div>
+          <div className="section-title">
+            <Power />
+            <h2>Docker 启动与 Compose 顺序</h2>
+          </div>
+          <p>保存后会安装宿主机 systemd 钩子。服务器开机、宿主机手动启动或重启 Docker、页面重启 Docker 时，都会按此顺序启动。</p>
+        </div>
+        <Button disabled={!settings || busy === 'startup-order' || !ordered.length} onClick={() => void save()}>
+          {busy === 'startup-order' ? '正在接管…' : settings?.installed ? '保存配置' : '保存并启用'}
+        </Button>
+      </div>
+      <div className="startup-warning">
+        <CircleHelp size={18} />
+        <span>
+          启用的项目由 systemd 接管，现有容器的原生 restart 策略会改为 <code>no</code>
+          ，避免 Docker 抢先并行启动。取消接管时会按 Compose 文件恢复 restart 策略。
+        </span>
+      </div>
+      <div className="startup-list">
+        {enabled.length > 0 && (
+          <>
+            <div className="startup-group-header">
+              <h3>已接管的项目</h3>
+              <span className="muted">{enabled.length} 个项目将在 Docker 启动时按顺序启动</span>
+            </div>
+            {enabled.map((preference, index) => renderProjectRow(preference, index, true))}
+          </>
+        )}
+        {disabled.length > 0 && (
+          <>
+            <div className="startup-group-header">
+              <h3>未接管的项目</h3>
+              <span className="muted">{disabled.length} 个项目不会自动启动</span>
+            </div>
+            {disabled.map((preference) => renderProjectRow(preference, 0, false))}
+          </>
+        )}
+        {settings && !ordered.length && <div className="empty">暂无可排序的 Compose 项目。</div>}
+        {!settings && (
+          <div className="empty">
+            <RefreshCw className="spin" />
+            正在读取启动顺序…
+          </div>
+        )}
+      </div>
+      <div className="startup-footer">
+        <label>
+          <input
+            type="checkbox"
+            checked={settings?.continueOnError || false}
+            onChange={(event) =>
+              setSettings((current) => (current ? { ...current, continueOnError: event.target.checked } : current))
+            }
+          />
+          某个项目启动失败后继续启动后续项目
+        </label>
+        <span>
+          {settings?.status?.state
+            ? `最近状态：${settings.status.state}${settings.status.project ? ` · ${settings.status.project}` : ''}`
+            : settings?.installed
+            ? `系统服务：${settings.integration}`
+            : '系统服务：尚未安装'}
+        </span>
+      </div>
+      {!settings?.canInstall && settings && (
+        <p className="field-error">
+          当前环境未检测到可用的 systemd 宿主机集成。你仍可点击"保存并启用"执行实际安装检查；Docker Desktop 和 rootless
+          Docker 不支持此功能。
+        </p>
+      )}
+    </section>
+  );
 }
 
 function ContainerTable({ items, busy, loading, action, restart }: { items: Container[]; busy: string | null; loading: boolean; action: (item: Container, action: string) => Promise<void>; restart: (item: Container) => void }) {
