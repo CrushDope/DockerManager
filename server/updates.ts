@@ -23,8 +23,17 @@ export type UpdateState = {
 const updates = new Map<string, UpdateState>();
 let activeScan: Promise<UpdateState[]> | null = null;
 
+// 规范化镜像名，确保 "redis" 和 "redis:latest" 使用同一个 key
+function normalizeImageName(image: string) {
+  if (image.includes('@')) return image;
+  const lastPart = image.split('/').at(-1) || '';
+  if (!lastPart.includes(':')) return `${image}:latest`;
+  return image;
+}
+
 export function updateFor(image: string, imageId: string) {
-  const state = updates.get(image);
+  const key = normalizeImageName(image);
+  const state = updates.get(key);
   if (!state) return null;
   return {
     ...state,
@@ -71,7 +80,16 @@ export async function checkLatestImages(force = false) {
       dockerRequest<DockerContainer[]>('/containers/json?all=1'),
       activeMirrors(),
     ]);
-    const latest = [...new Set(containers.map((item) => item.Image).filter(isLatestImage))];
+    // 从容器镜像和本地镜像 tag 双向收集需要检查的镜像名
+    const containerImages = containers.map((item) => item.Image).filter(isLatestImage);
+    let localImages: Array<{ Id: string; RepoTags: string[] | null }> = [];
+    try {
+      localImages = await dockerRequest<Array<{ Id: string; RepoTags: string[] | null }>>('/images/json');
+    } catch {
+      // 忽略本地镜像列表读取失败
+    }
+    const localTags = localImages.flatMap((img) => img.RepoTags || []).filter(isLatestImage);
+    const latest = [...new Set([...containerImages, ...localTags].map(normalizeImageName))];
     return mapConcurrent(latest, 2, async (image) => {
       const checkedAt = new Date().toISOString();
       updates.set(image, { image, status: 'checking', checkedAt });
@@ -91,8 +109,11 @@ export async function checkLatestImages(force = false) {
         // 收集需要检查的镜像 ID：容器使用的 + 当前 tag 指向的本地镜像
         const imageIdSet = new Set<string>();
         containers
-          .filter((container) => container.Image === image)
+          .filter((container) => normalizeImageName(container.Image) === image)
           .forEach((container) => imageIdSet.add(container.ImageID));
+        localImages
+          .filter((img) => (img.RepoTags || []).some((tag) => normalizeImageName(tag) === image))
+          .forEach((img) => imageIdSet.add(img.Id));
         try {
           const localImage = await dockerRequest<{ Id: string }>(
             `/images/${encodeURIComponent(image)}/json`,
@@ -195,7 +216,6 @@ export async function upgradeContainer(id: string) {
   const inspect = await dockerRequest<ContainerInspect>(`/containers/${safeId}/json`);
   const image = inspect.Config.Image;
   if (!isLatestImage(image)) throw new Error('仅支持升级 latest 镜像');
-  await pullImage(image);
 
   const labels = (inspect.Config.Labels || {}) as Record<string, string>;
   const project = labels['com.docker.compose.project'];
@@ -203,11 +223,22 @@ export async function upgradeContainer(id: string) {
   if (project && service) {
     const composeProject = await findComposeProject(project);
     if (!composeProject) throw new Error(`找不到 Compose 项目 ${project} 的配置文件`);
-    await runCompose(composeProject.file, ['pull', service], project);
-    await runCompose(composeProject.file, ['up', '-d', '--no-deps', service], project);
-    updates.delete(image);
+    // 更新流程：停止整个 Compose → 拉取镜像 → 重新启动整个 Compose
+    console.log(`[升级] Compose 项目 ${project}：停止 → 拉取 ${image} → 启动`);
+    await runCompose(composeProject.file, ['stop'], project);
+    try {
+      await runCompose(composeProject.file, ['pull'], project);
+    } catch (error) {
+      // 拉取失败时尝试重新启动，避免服务长时间停机
+      await runCompose(composeProject.file, ['up', '-d', '--remove-orphans'], project).catch(() => undefined);
+      throw error;
+    }
+    await runCompose(composeProject.file, ['up', '-d', '--remove-orphans'], project);
+    updates.delete(normalizeImageName(image));
     return { mode: 'compose', project, service };
   }
+
+  await pullImage(image);
 
   if (inspect.HostConfig.AutoRemove) {
     throw new Error('自动删除容器无法安全重建，请改用 Compose 管理后再升级');
@@ -248,7 +279,7 @@ export async function upgradeContainer(id: string) {
       await dockerRequest(`/containers/${idPath(created.Id)}/pause`, { method: 'POST' });
     }
     await dockerRequest(`/containers/${safeId}?force=1`, { method: 'DELETE' });
-    updates.delete(image);
+    updates.delete(normalizeImageName(image));
     return { mode: 'standalone', containerId: created.Id };
   } catch (error) {
     if (createdId) {
