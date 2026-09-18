@@ -145,6 +145,36 @@ function helperAvailable() {
   return /^[a-f0-9]{12,64}$/i.test(process.env.HOSTNAME || '');
 }
 
+async function applyCapability() {
+  if (!helperAvailable()) {
+    return {
+      canApply: false,
+      applyReason: '当前不在 Docker 容器中运行，无法自动修改宿主机配置',
+    };
+  }
+  try {
+    const info = await dockerRequest<{ OperatingSystem?: string; SecurityOptions?: string[] }>('/info');
+    if (/docker desktop/i.test(info.OperatingSystem || '')) {
+      return {
+        canApply: false,
+        applyReason: 'Docker Desktop 的镜像源必须在 Docker Desktop 设置的 Docker Engine 页面中修改',
+      };
+    }
+    if ((info.SecurityOptions || []).some((option) => /rootless/i.test(option))) {
+      return {
+        canApply: false,
+        applyReason: 'Rootless Docker 无法通过特权辅助容器修改宿主机 daemon.json',
+      };
+    }
+    return { canApply: true, applyReason: null };
+  } catch (error) {
+    return {
+      canApply: false,
+      applyReason: `无法确认宿主机类型：${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 async function helperImage() {
   const self = process.env.HOSTNAME || '';
   if (!helperAvailable()) {
@@ -240,12 +270,12 @@ async function waitForMirrors(sources: MirrorSource[]) {
 }
 
 async function mirrorState() {
-  const active = await activeMirrors();
+  const [active, capability] = await Promise.all([activeMirrors(), applyCapability()]);
   const sources = await readCatalog(active);
   return {
     sources: sources.map((source) => ({ ...source, active: active.includes(source.url) })),
     active,
-    canApply: helperAvailable(),
+    ...capability,
     hostConfigPath: config.hostDockerConfigPath,
   };
 }
@@ -263,6 +293,10 @@ export async function saveMirrors(input: unknown) {
 export async function applyMirrors(input: unknown) {
   if (applying) return applying;
   applying = (async () => {
+    const capability = await applyCapability();
+    if (!capability.canApply) {
+      throw new MirrorError(capability.applyReason || '当前环境无法自动应用镜像源', 409, 'MIRROR_APPLY_UNSUPPORTED');
+    }
     const sources = normalizeMirrorSources(input);
     const enabled = sources.filter((source) => source.enabled).map((source) => source.url);
     await writeCatalog(sources);
