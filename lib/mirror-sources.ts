@@ -51,3 +51,10 @@ export function normalizeMirrorSources(input: unknown): MirrorSource[] {
     return { id, url, enabled: record.enabled === true };
   });
 }
+
+export function mirrorConfigurationMatches(sources: MirrorSource[], active: string[]) {
+  const activeSet = new Set(active.map(normalizeMirrorUrl));
+  return sources.every((source) =>
+    source.enabled ? activeSet.has(source.url) : !activeSet.has(source.url),
+  );
+}

@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { dockerRequest, idPath } from './docker.js';
 import {
   type MirrorSource,
+  mirrorConfigurationMatches,
   MirrorValidationError as MirrorError,
   normalizeMirrorSources,
   normalizeMirrorUrl,
@@ -224,20 +225,18 @@ async function runHelper(action: 'apply' | 'rollback' | 'cleanup', mirrors: stri
   }
 }
 
-function equalMirrors(left: string[], right: string[]) {
-  return [...left].sort().join('\n') === [...right].sort().join('\n');
-}
-
-async function waitForMirrors(expected: string[]) {
-  for (let attempt = 0; attempt < 16; attempt++) {
+async function waitForMirrors(sources: MirrorSource[]) {
+  let active: string[] = [];
+  for (let attempt = 0; attempt < 60; attempt++) {
     try {
-      if (equalMirrors(await activeMirrors(), expected)) return true;
+      active = await activeMirrors();
+      if (mirrorConfigurationMatches(sources, active)) return { applied: true, active };
     } catch {
       // Docker may briefly delay API responses while reloading its configuration.
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  return false;
+  return { applied: false, active };
 }
 
 async function mirrorState() {
@@ -269,9 +268,10 @@ export async function applyMirrors(input: unknown) {
     await writeCatalog(sources);
     try {
       await runHelper('apply', enabled);
-      if (!(await waitForMirrors(enabled))) {
+      const result = await waitForMirrors(sources);
+      if (!result.applied) {
         throw new MirrorError(
-          'Docker 已收到热重载信号，但生效配置与启用列表不一致，已恢复原配置',
+          `Docker 已收到热重载信号，但 30 秒后配置仍未完全生效。当前 Engine 镜像源：${result.active.join('、') || '无'}。已恢复原配置`,
           500,
           'MIRROR_RELOAD_FAILED',
         );

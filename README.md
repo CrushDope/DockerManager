@@ -62,7 +62,7 @@ docker compose up -d --build
 
 镜像更新检查会直接读取镜像仓库的 manifest 摘要，不会为了检查而拉取镜像。可在“镜像管理”页面或通过 `UPDATE_CHECK_PROXY` 配置只供更新检查使用的 HTTP/HTTPS 代理；这个代理不会写入 Docker daemon，也不会影响正式升级时的镜像拉取。单个镜像仓库超过 `UPDATE_PULL_TIMEOUT_SECONDS`（默认 120 秒）仍未响应时，该镜像会显示超时错误，其他镜像继续检查。
 
-在“Compose 项目”页面保存启动顺序后，DockerManager 会在宿主机安装 `docker-manager-compose-restore.service`。该服务挂到 `docker.service`，所以服务器开机、宿主机手动执行 `systemctl start docker` 或 `systemctl restart docker`、以及页面触发重启时都会使用相同顺序。启用接管的项目会改用 `restart=no`，避免 Docker 在 systemd 顺序任务之前并行恢复容器；取消接管时会按 Compose 文件恢复 restart 策略。该功能要求宿主机使用 systemd，并允许 DockerManager 通过 Docker Socket 创建一次性特权辅助容器。
+在“启动顺序”页面保存配置后，DockerManager 会在宿主机安装 `docker-manager-compose-restore.service`。该服务挂到 `docker.service`，所以服务器开机、宿主机手动执行 `systemctl start docker` 或 `systemctl restart docker`、以及页面触发重启时都会使用相同顺序。启用接管的项目会改用 `restart=no`，避免 Docker 在 systemd 顺序任务之前并行恢复容器；取消接管时会按 Compose 文件恢复 restart 策略。该功能要求宿主机使用 systemd，并允许 DockerManager 通过 Docker Socket 创建一次性特权辅助容器。
 
 ## 本地开发
 
