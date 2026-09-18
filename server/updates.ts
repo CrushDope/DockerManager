@@ -32,6 +32,10 @@ export function listUpdateStates() {
   return [...updates.values()];
 }
 
+export function updateScanRunning() {
+  return activeScan !== null;
+}
+
 async function mapConcurrent<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>) {
   const output: R[] = [];
   let cursor = 0;

@@ -20,7 +20,13 @@ import {
   readComposeFile,
   runCompose,
 } from './compose.js';
-import { checkLatestImages, listUpdateStates, updateFor, upgradeContainer } from './updates.js';
+import {
+  checkLatestImages,
+  listUpdateStates,
+  updateFor,
+  updateScanRunning,
+  upgradeContainer,
+} from './updates.js';
 import { applyMirrors, getMirrors, MirrorError, saveMirrors } from './mirrors.js';
 import { validateCompose } from '../lib/validate-compose.js';
 
@@ -226,11 +232,14 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     return json(response, 200, { images: await images() });
   }
   if (method === 'GET' && url.pathname === '/api/updates') {
-    return json(response, 200, { updates: listUpdateStates() });
+    return json(response, 200, { updates: listUpdateStates(), running: updateScanRunning() });
   }
   if (method === 'POST' && url.pathname === '/api/updates/check') {
     const input = await body(request);
-    return json(response, 200, { updates: await checkLatestImages(input.force === true) });
+    void checkLatestImages(input.force === true).catch((error) => {
+      console.error('latest image scan failed', error);
+    });
+    return json(response, 202, { updates: listUpdateStates(), running: true });
   }
   const containerAction = actionPath(url.pathname);
   if (method === 'POST' && containerAction) {

@@ -16,11 +16,20 @@ type RequestOptions = {
   body?: unknown;
   headers?: IncomingHttpHeaders;
   accept?: number[];
+  timeoutMs?: number;
 };
 
 export async function dockerRequest<T>(path: string, options: RequestOptions = {}) {
   const payload = options.body === undefined ? undefined : JSON.stringify(options.body);
   return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let timeout: NodeJS.Timeout | undefined;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      callback();
+    };
     const request = http.request(
       {
         socketPath: config.dockerSocket,
@@ -40,6 +49,15 @@ export async function dockerRequest<T>(path: string, options: RequestOptions = {
       (response) => {
         const chunks: Buffer[] = [];
         response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        response.on('error', (error) =>
+          finish(() =>
+            reject(
+              error instanceof DockerError
+                ? error
+                : new DockerError(`Docker API 响应失败：${error.message}`, 502),
+            ),
+          ),
+        );
         response.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8');
           const status = response.statusCode || 500;
@@ -57,21 +75,34 @@ export async function dockerRequest<T>(path: string, options: RequestOptions = {
               typeof parsed === 'object' && parsed && 'message' in parsed
                 ? String(parsed.message)
                 : text || `Docker API returned ${status}`;
-            reject(new DockerError(message, status, parsed));
+            finish(() => reject(new DockerError(message, status, parsed)));
             return;
           }
-          resolve((text ? parsed : undefined) as T);
+          finish(() => resolve((text ? parsed : undefined) as T));
         });
       },
     );
     request.on('error', (error) =>
-      reject(
-        new DockerError(
-          `无法连接 Docker：${error.message}。请检查 Docker Socket 挂载。`,
-          503,
+      finish(() =>
+        reject(
+          error instanceof DockerError
+            ? error
+            : new DockerError(
+                `无法连接 Docker：${error.message}。请检查 Docker Socket 挂载。`,
+                503,
+              ),
         ),
       ),
     );
+    if (options.timeoutMs) {
+      timeout = setTimeout(() => {
+        const seconds = Math.ceil(options.timeoutMs! / 1_000);
+        const error = new DockerError(`Docker 操作超过 ${seconds} 秒，已停止等待`, 504);
+        request.destroy();
+        finish(() => reject(error));
+      }, options.timeoutMs);
+      timeout.unref();
+    }
     if (payload) request.write(payload);
     request.end();
   });
@@ -85,6 +116,7 @@ export async function pullImage(image: string) {
       headers: {
         'X-Registry-Auth': Buffer.from('{}').toString('base64'),
       },
+      timeoutMs: config.updatePullTimeoutMs,
     },
   );
   const records = String(response || '')

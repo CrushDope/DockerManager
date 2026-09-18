@@ -58,6 +58,8 @@ docker compose up -d --build
 
 如果 Docker 使用了自定义配置文件路径，可在 `.env` 中设置 `HOST_DOCKER_CONFIG_PATH`。
 
+镜像更新检查会在后台运行。单个镜像仓库超过 `UPDATE_PULL_TIMEOUT_SECONDS`（默认 120 秒）仍未响应时，该镜像会显示超时错误，其他镜像继续检查，页面不会一直锁定在“检查中”。
+
 ## 本地开发
 
 ```bash

@@ -17,6 +17,7 @@ export const config = {
   adminUsername: process.env.ADMIN_USERNAME || 'admin',
   adminPassword: process.env.ADMIN_PASSWORD || '',
   updateCacheMs: integer(process.env.UPDATE_CACHE_MINUTES, 10) * 60_000,
+  updatePullTimeoutMs: integer(process.env.UPDATE_PULL_TIMEOUT_SECONDS, 120) * 1_000,
   bodyLimit: integer(process.env.BODY_LIMIT_BYTES, 2 * 1024 * 1024),
   staticRoot: resolve(process.env.STATIC_ROOT || 'dist/client'),
 };
