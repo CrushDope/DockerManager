@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeMirrorSources } from '../lib/mirror-sources.ts';
+import { normalizeMirrorSources, prioritizeMirrorSource } from '../lib/mirror-sources.ts';
 
 test('normalizes editable mirror sources and preserves enabled state', () => {
   assert.deepEqual(
@@ -27,5 +27,20 @@ test('rejects duplicate, credentialed, and unsupported mirror URLs', () => {
   );
   assert.throws(() =>
     normalizeMirrorSources([{ url: 'ftp://mirror.example.com', enabled: true }]),
+  );
+});
+
+test('keeps the required update mirror enabled and first', () => {
+  const sources = [
+    { id: 'fallback', url: 'https://mirror.example.com', enabled: true },
+    { id: 'nju', url: 'https://docker.nju.edu.cn', enabled: false },
+  ];
+  assert.deepEqual(prioritizeMirrorSource(sources, 'https://docker.nju.edu.cn/'), [
+    { id: 'nju', url: 'https://docker.nju.edu.cn', enabled: true },
+    { id: 'fallback', url: 'https://mirror.example.com', enabled: true },
+  ]);
+  assert.equal(
+    prioritizeMirrorSource([], 'https://docker.nju.edu.cn')[0].url,
+    'https://docker.nju.edu.cn',
   );
 });

@@ -60,6 +60,8 @@ docker compose up -d --build
 
 镜像更新检查会在后台运行。单个镜像仓库超过 `UPDATE_PULL_TIMEOUT_SECONDS`（默认 120 秒）仍未响应时，该镜像会显示超时错误，其他镜像继续检查，页面不会一直锁定在“检查中”。
 
+镜像更新检查默认要求 `https://docker.nju.edu.cn` 是宿主机 Docker 的首选 `registry-mirrors`。首次部署后进入“加速源配置”，该地址会自动出现在列表首位；点击“应用到宿主机”使其生效后再执行检查。可通过 `UPDATE_REGISTRY_MIRROR` 修改要求使用的检查源。
+
 ## 本地开发
 
 ```bash

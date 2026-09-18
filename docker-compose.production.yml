@@ -1,28 +1,32 @@
 services:
-  nasdocker:
-    build:
-      context: .
-    image: nasdocker:local
-    container_name: nasdocker
+  docker-manager:
+    image: projectdown/docker-manager:latest
+    container_name: docker-manager
     restart: unless-stopped
+
     ports:
-      - "${NASDOCKER_PORT:-3080}:3000"
+      - "${DOCKER_MANAGER_PORT:-3102}:3000"
+
     environment:
-      ADMIN_USERNAME: "${NASDOCKER_USERNAME:-admin}"
-      ADMIN_PASSWORD: "${NASDOCKER_PASSWORD:?请在 .env 中设置 NASDOCKER_PASSWORD}"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?请在 .env 中设置 ADMIN_PASSWORD}"
       UPDATE_CACHE_MINUTES: "${UPDATE_CACHE_MINUTES:-10}"
       UPDATE_PULL_TIMEOUT_SECONDS: "${UPDATE_PULL_TIMEOUT_SECONDS:-120}"
       UPDATE_REGISTRY_MIRROR: "${UPDATE_REGISTRY_MIRROR:-https://docker.nju.edu.cn}"
       HOST_DOCKER_CONFIG_PATH: "${HOST_DOCKER_CONFIG_PATH:-/etc/docker/daemon.json}"
+
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${COMPOSE_HOST_DIR:-./compose-files}:/composeFile
-      - nasdocker-data:/data
+      - ${COMPOSE_HOST_DIR:-/opt/docker-manager/compose-files}:/composeFile
+      - docker-manager-data:/data
+
     read_only: true
+
     tmpfs:
       - /tmp:size=64m,mode=1777
+
     security_opt:
       - no-new-privileges:true
 
 volumes:
-  nasdocker-data:
+  docker-manager-data:

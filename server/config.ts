@@ -18,6 +18,8 @@ export const config = {
   adminPassword: process.env.ADMIN_PASSWORD || '',
   updateCacheMs: integer(process.env.UPDATE_CACHE_MINUTES, 10) * 60_000,
   updatePullTimeoutMs: integer(process.env.UPDATE_PULL_TIMEOUT_SECONDS, 120) * 1_000,
+  updateRegistryMirror:
+    process.env.UPDATE_REGISTRY_MIRROR || 'https://docker.nju.edu.cn',
   bodyLimit: integer(process.env.BODY_LIMIT_BYTES, 2 * 1024 * 1024),
   staticRoot: resolve(process.env.STATIC_ROOT || 'dist/client'),
 };

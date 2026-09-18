@@ -51,3 +51,13 @@ export function normalizeMirrorSources(input: unknown): MirrorSource[] {
     return { id, url, enabled: record.enabled === true };
   });
 }
+
+export function prioritizeMirrorSource(sources: MirrorSource[], value: string) {
+  const url = normalizeMirrorUrl(value);
+  const index = sources.findIndex((source) => source.url === url);
+  const required =
+    index === -1
+      ? { id: 'update-check-source', url, enabled: true }
+      : { ...sources[index], enabled: true };
+  return [required, ...sources.filter((_, sourceIndex) => sourceIndex !== index)];
+}

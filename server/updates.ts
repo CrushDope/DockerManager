@@ -7,6 +7,8 @@ import {
 } from './docker.js';
 import { runCompose, findComposeProject } from './compose.js';
 import { config } from './config.js';
+import { activeMirrors } from './mirrors.js';
+import { normalizeMirrorUrl } from '../lib/mirror-sources.js';
 
 export type UpdateState = {
   image: string;
@@ -62,12 +64,21 @@ export async function checkLatestImages(force = false) {
     return listUpdateStates();
   }
   activeScan = (async () => {
-    const containers = await dockerRequest<DockerContainer[]>('/containers/json?all=1');
+    const [containers, mirrors] = await Promise.all([
+      dockerRequest<DockerContainer[]>('/containers/json?all=1'),
+      activeMirrors(),
+    ]);
+    const updateSource = normalizeMirrorUrl(config.updateRegistryMirror);
+    const sourceError =
+      mirrors[0] === updateSource
+        ? null
+        : `更新检查源 ${updateSource} 尚未成为宿主机 Docker 的首选镜像源。请到“加速源配置”点击“应用到宿主机”后重新检查`;
     const latest = [...new Set(containers.map((item) => item.Image).filter(isLatestImage))];
     return mapConcurrent(latest, 2, async (image) => {
       const checkedAt = new Date().toISOString();
       updates.set(image, { image, status: 'checking', checkedAt });
       try {
+        if (sourceError) throw new Error(sourceError);
         await pullImage(image);
         const target = await dockerRequest<{ Id: string }>(
           `/images/${encodeURIComponent(image)}/json`,
