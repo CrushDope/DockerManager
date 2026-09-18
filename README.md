@@ -54,9 +54,9 @@ docker compose up -d --build
 容器内：/composeFile/media/jellyfin/docker-compose.yml
 ```
 
-镜像源页面通过 Docker Engine 自动读取当前生效配置。点击“应用到宿主机”时，DockerManager 会通过 Docker Socket 启动一次性辅助容器，更新宿主机的 `/etc/docker/daemon.json`，再向 `dockerd` 发送 `SIGHUP` 热重载信号。辅助容器会在操作结束后删除，不需要映射宿主机 Docker 配置目录，也不会重启现有容器。
+镜像源页面通过 Docker Engine 自动读取当前生效配置。点击“应用到宿主机”时，DockerManager 会通过 Docker Socket 启动一次性特权辅助容器，更新宿主机的 `/etc/docker/daemon.json`，再向 `dockerd` 发送 `SIGHUP` 热重载信号。辅助容器会使用宿主机用户命名空间并关闭 SELinux 标签隔离，以兼容启用了 `userns-remap` 或 SELinux 的服务器；操作结束后会立即删除，不需要长期映射宿主机 Docker 配置目录，也不会重启现有容器。
 
-如果 Docker 使用了自定义配置文件路径，可在 `.env` 中设置 `HOST_DOCKER_CONFIG_PATH`。
+如果 Docker 使用了自定义配置文件路径，可在 `.env` 中设置 `HOST_DOCKER_CONFIG_PATH`。Rootless Docker 通常不使用 `/etc/docker/daemon.json`，需要把该变量设置为 rootless daemon 实际读取的配置文件；如果 Docker 禁止宿主机 PID 命名空间或特权容器，则只能在宿主机上手动重载配置。
 
 镜像更新检查会在后台运行。单个镜像仓库超过 `UPDATE_PULL_TIMEOUT_SECONDS`（默认 120 秒）仍未响应时，该镜像会显示超时错误，其他镜像继续检查，页面不会一直锁定在“检查中”。
 

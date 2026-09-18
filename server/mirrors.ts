@@ -18,28 +18,54 @@ MISSING="$TARGET.nasdocker.missing"
 
 case "$ACTION" in
   apply)
-    rm -f "$MISSING"
-    if [ -f "$TARGET" ]; then cp -p "$TARGET" "$BACKUP"; else touch "$MISSING"; fi
+    if [ ! -d /host-docker-config ]; then
+      echo "宿主机 Docker 配置目录不存在：/host-docker-config" >&2
+      exit 43
+    fi
+    if ! rm -f "$MISSING"; then
+      echo "无法清理宿主机 Docker 配置标记文件，请检查配置目录权限" >&2
+      exit 43
+    fi
+    if [ -f "$TARGET" ]; then
+      if ! cp -p "$TARGET" "$BACKUP"; then
+        echo "无法备份宿主机 Docker 配置：$TARGET，请检查 userns-remap、SELinux 或目录权限" >&2
+        exit 43
+      fi
+    elif ! touch "$MISSING"; then
+      echo "无法写入宿主机 Docker 配置目录，请检查 userns-remap、SELinux 或目录权限" >&2
+      exit 43
+    fi
     node <<'NODE'
 const fs = require('node:fs');
 const path = process.env.TARGET_PATH;
 const temporary = path + '.nasdocker.tmp';
-let document = {};
 try {
-  const raw = fs.readFileSync(path, 'utf8');
+  let document = {};
   try {
-    document = JSON.parse(raw);
+    const raw = fs.readFileSync(path, 'utf8');
+    try {
+      document = JSON.parse(raw);
+    } catch (error) {
+      // DockerManager 早期版本可能在文件末尾写入了字面量 "\\n"，自动修复该格式。
+      if (raw.endsWith('\\n')) document = JSON.parse(raw.slice(0, -2));
+      else throw error;
+    }
   } catch (error) {
-    // NasDocker 早期版本可能在文件末尾写入了字面量 "\\n"，自动修复该格式。
-    if (raw.endsWith('\\n')) document = JSON.parse(raw.slice(0, -2));
-    else throw error;
+    if (error.code !== 'ENOENT') throw error;
   }
+  document['registry-mirrors'] = JSON.parse(process.env.MIRRORS_JSON || '[]');
+  fs.writeFileSync(temporary, JSON.stringify(document, null, 2) + '\n', {mode: 0o600});
+  fs.renameSync(temporary, path);
 } catch (error) {
-  if (error.code !== 'ENOENT') throw error;
+  try { fs.rmSync(temporary, {force: true}); } catch {}
+  const code = error && error.code ? ' (' + error.code + ')' : '';
+  if (error && ['EACCES', 'EPERM', 'EROFS'].includes(error.code)) {
+    console.error('无法写入宿主机 Docker 配置：' + path + code + '。请检查 Docker 是否为 rootless 模式，以及宿主机的 userns-remap、SELinux 和目录权限。');
+  } else {
+    console.error('更新宿主机 Docker 配置失败：' + (error && error.message ? error.message : String(error)));
+  }
+  process.exit(43);
 }
-document['registry-mirrors'] = JSON.parse(process.env.MIRRORS_JSON || '[]');
-fs.writeFileSync(temporary, JSON.stringify(document, null, 2) + '\n', {mode: 0o600});
-fs.renameSync(temporary, path);
 NODE
     ;;
   rollback)
@@ -55,7 +81,10 @@ esac
 
 PIDS="$(pidof dockerd || true)"
 [ -n "$PIDS" ] || { echo '未找到宿主机 dockerd 进程' >&2; exit 42; }
-kill -HUP $PIDS
+if ! kill -HUP $PIDS; then
+  echo '配置文件已写入，但没有权限向宿主机 dockerd 发送热重载信号' >&2
+  exit 44
+fi
 `;
 
 let applying: Promise<Awaited<ReturnType<typeof mirrorState>>> | null = null;
@@ -89,13 +118,26 @@ async function readCatalog(active: string[]) {
 }
 
 async function writeCatalog(sources: MirrorSource[]) {
-  await mkdir(dirname(config.mirrorStorePath), { recursive: true });
+  const directory = dirname(config.mirrorStorePath);
   const temporary = `${config.mirrorStorePath}.tmp`;
-  await writeFile(temporary, `${JSON.stringify({ sources }, null, 2)}\n`, {
-    encoding: 'utf8',
-    mode: 0o600,
-  });
-  await rename(temporary, config.mirrorStorePath);
+  try {
+    await mkdir(directory, { recursive: true });
+    await writeFile(temporary, `${JSON.stringify({ sources }, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    await rename(temporary, config.mirrorStorePath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') {
+      throw new MirrorError(
+        `无法保存镜像源列表到 ${directory}（${code}）。请确认 /data 已挂载为可写卷，且容器用户有写入权限`,
+        500,
+        'MIRROR_STORE_PERMISSION',
+      );
+    }
+    throw error;
+  }
 }
 
 function helperAvailable() {
@@ -135,6 +177,7 @@ async function runHelper(action: 'apply' | 'rollback' | 'cleanup', mirrors: stri
       method: 'POST',
       body: {
         Image: image,
+        User: '0:0',
         Entrypoint: ['/bin/sh', '-c'],
         Cmd: [helperScript],
         Tty: true,
@@ -150,6 +193,10 @@ async function runHelper(action: 'apply' | 'rollback' | 'cleanup', mirrors: stri
           Binds: [`${dirname(config.hostDockerConfigPath)}:/host-docker-config`],
           NetworkMode: 'none',
           PidMode: 'host',
+          Privileged: true,
+          ReadonlyRootfs: true,
+          SecurityOpt: ['label=disable'],
+          UsernsMode: 'host',
           CapAdd: ['KILL'],
         },
       },
