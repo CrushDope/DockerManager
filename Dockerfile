@@ -1,4 +1,8 @@
-FROM node:22-alpine AS build
+# syntax=docker/dockerfile:1
+
+# The build output is architecture-independent JavaScript. Running this stage on
+# the native builder avoids QEMU crashes while producing multi-platform images.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
