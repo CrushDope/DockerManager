@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Activity, ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, Box, Check, ChevronRight, CircleHelp, HardDrive, Layers, ListOrdered, Network, Package, Pause, Play, Plus, Power, RefreshCw, Search, Server, Square, Trash2, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, Box, Check, ChevronRight, CircleHelp, Copy, Download, Gauge, HardDrive, Layers, ListOrdered, Network, Package, Pause, Play, Plus, Power, RefreshCw, Search, Server, Square, Terminal, Trash2, Zap } from 'lucide-react';
 import { ComposeEditor } from '@/components/compose-editor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,35 @@ type MirrorState = {
   applyReason: string | null;
   hostConfigPath: string;
 };
+type MirrorBenchmarkRecord = {
+  sourceId: string;
+  url: string;
+  status: 'ok' | 'mismatch' | 'error';
+  latencyMs: number | null;
+  samplesMs: number[];
+  digest?: string;
+  error?: string;
+};
+type MirrorBenchmarkState = {
+  image: string;
+  testedAt: string;
+  referenceDigest: string | null;
+  referenceError: string | null;
+  recommendedSourceId: string | null;
+  results: MirrorBenchmarkRecord[];
+  orderedSources: MirrorSource[];
+};
+type ContainerLogLine = { timestamp: string | null; stream: 'stdout' | 'stderr' | 'console'; message: string };
+type ContainerLogResponse = {
+  container: {
+    id: string; name: string; image: string; state: string; running: boolean; paused: boolean;
+    restarting: boolean; oomKilled: boolean; dead: boolean; pid: number; exitCode: number | null;
+    error: string; startedAt: string | null; finishedAt: string | null; restartCount: number; logDriver: string;
+  };
+  query: { tail: number; sinceSeconds: number };
+  lines: ContainerLogLine[];
+  readAt: string;
+};
 type UpdateProxySettings = { enabled: boolean; url: string; noProxy: string };
 type StartupPreference = { directory: string; enabled: boolean; order: number; timeoutSeconds: number };
 type StartupSettings = {
@@ -33,6 +62,7 @@ type Modal =
   | { kind: 'upgrade' | 'restart'; container: Container }
   | { kind: 'compose' }
   | { kind: 'view'; project: ComposeProject }
+  | { kind: 'logs'; container: Container }
   | { kind: 'help' }
   | null;
 
@@ -78,6 +108,8 @@ export default function Home() {
   const [activeMirrors, setActiveMirrors] = useState<string[]>([]);
   const [mirrorCanApply, setMirrorCanApply] = useState(false);
   const [mirrorApplyReason, setMirrorApplyReason] = useState('');
+  const [mirrorBenchmarkImage, setMirrorBenchmarkImage] = useState('projectdown/docker-manager:latest');
+  const [mirrorBenchmark, setMirrorBenchmark] = useState<MirrorBenchmarkState | null>(null);
   const [updateProxy, setUpdateProxy] = useState<UpdateProxySettings>({ enabled: false, url: '', noProxy: 'localhost,127.0.0.1' });
   const [startupSettings, setStartupSettings] = useState<StartupSettings | null>(null);
 
@@ -216,6 +248,7 @@ export default function Home() {
         return;
       }
       setMirrorSources((sources) => [...sources, { id: `mirror-${Date.now()}`, url: normalized, enabled: false }]);
+      setMirrorBenchmark(null);
       setNewMirror('');
     } catch {
       setNotice({ type: 'error', text: '请输入有效的 HTTP 或 HTTPS 镜像源地址' });
@@ -238,6 +271,25 @@ export default function Home() {
       }
     }
     catch (error) { showError(error); } finally { setBusy(null); }
+  }
+  async function benchmarkMirrorConfig() {
+    setBusy('mirror-benchmark');
+    try {
+      const result = await post<MirrorBenchmarkState>('/api/docker/mirrors/benchmark', {
+        sources: mirrorSources,
+        image: mirrorBenchmarkImage,
+      });
+      const active = new Set(activeMirrors);
+      setMirrorSources(result.orderedSources.map((source) => ({ ...source, active: active.has(source.url) })));
+      setMirrorBenchmark(result);
+      const recommended = result.results.find((record) => record.sourceId === result.recommendedSourceId);
+      setNotice({
+        type: 'ok',
+        text: recommended
+          ? `测速完成，${recommended.url} 已排到首位；应用配置后生效`
+          : '测速完成，但没有找到可用且摘要一致的镜像源',
+      });
+    } catch (error) { showError(error); } finally { setBusy(null); }
   }
   async function saveUpdateProxy() {
     setBusy('update-proxy');
@@ -312,15 +364,39 @@ export default function Home() {
     <div className="main-shell"><header className="topbar"><div>工作空间 <ChevronRight size={14} /> <span>{page}</span></div><div><span className="top-host"><span className={system ? 'online-dot' : 'offline-dot'} />{system?.name || '未连接'}</span></div></header>
       <main><h1 className="sr-only">{page}</h1>{page === 'Compose 项目' && <div className="compose-page-actions"><Button onClick={startCompose}><Plus />部署 Compose</Button></div>}{page === '启动顺序' && <div className="compose-page-actions"><Button variant="outline" disabled={!startupSettings?.installed || busy === 'docker-restart'} onClick={() => void restartDocker()}><Power />{busy === 'docker-restart' ? '正在提交…' : '重启 Docker'}</Button></div>}
         {page === '容器管理' && <><section className="metrics"><Metric icon={<Box />} label="全部容器" value={containers.length} detail="当前宿主机" /><Metric icon={<Activity />} label="运行中" value={running} detail="服务运行正常" green /><Metric icon={<Pause />} label="暂停 / 停止" value={containers.length - running} detail="可随时恢复" /><Metric icon={<Package />} label="可升级镜像" value={checking ? '—' : updates.length} detail="仅检查 latest" blue /></section>
-          <section className="updates-panel"><div className="section-line"><div className="section-title"><span className="update-symbol"><ArrowUpRight size={20} /></span><h2>{checking ? '正在检查 latest 清单' : updates.length ? '发现可升级镜像' : updateErrors.length ? `${updateErrors.length} 个镜像检查失败` : 'latest 镜像均为最新'}</h2><span className="count-badge">{checking ? '…' : updates.length}</span></div><button className="text-button" disabled={checking} onClick={() => void checkUpdates(true)}><RefreshCw size={14} className={checking ? 'spin' : ''} />{checking ? '检查中' : '重新检查'}</button></div><p className="section-description">通过镜像仓库 API 读取 latest 摘要并与本地镜像比较，不会在检查阶段拉取镜像。</p><div className="update-cards">{updates.map((item, index) => <article className="update-card" key={item.id}><AppIcon name={item.name} color={colors[index % colors.length]} /><div className="update-info"><b>{imageName(item.image)}<span className="tag">latest</span></b><small>关联容器：{item.name}</small></div><button className="update-action" onClick={() => setModal({ kind: 'upgrade', container: item })}>升级<ArrowUpRight size={14} /></button></article>)}{!checking && !updates.length && !updateErrors.length && <p className="success-inline"><Check size={17} />当前容器使用的 latest 镜像均为最新</p>}{!checking && !!updateErrors.length && <p className="error-text">部分镜像检查失败，请在"镜像管理"中查看原因。</p>}</div><div className="update-foot"><span><span className="online-dot" />进入页面自动检查</span><span>固定版本标签不参与检查</span></div></section>
-          <section className="container-panel"><div className="list-heading"><div className="section-title"><h2>容器列表</h2><span className="muted">{containers.length} 个容器</span></div><div className="search"><Search size={16} /><Input aria-label="搜索容器" placeholder="搜索容器、镜像或项目…" value={query} onChange={(event) => setQuery(event.target.value)} /></div></div><div className="filter-line"><div className="filters">{['全部', '运行中', '已暂停', '已停止'].map((state) => <button key={state} onClick={() => setFilter(state)} className={filter === state ? 'selected' : ''}>{state}<span>{state === '全部' ? containers.length : containers.filter((item) => stateText(item.state) === state).length}</span></button>)}</div><span className="port-legend"><Network size={14} />宿主机端口 <ArrowRight size={13} /> 容器端口</span></div><ContainerTable items={visible} busy={busy} loading={loading} action={containerAction} restart={(item) => setModal({ kind: 'restart', container: item })} /><div className="table-footer">显示 {visible.length} / {containers.length} 个容器<span><span className={system ? 'online-dot' : 'offline-dot'} />宿主机实时状态</span></div></section></>}
+          <section className="updates-panel"><div className="section-line"><div className="section-title"><span className="update-symbol"><ArrowUpRight size={20} /></span><h2>{checking ? '正在检查 latest 清单' : updates.length ? '发现可升级镜像' : updateErrors.length ? `${updateErrors.length} 个镜像检查失败` : 'latest 镜像均为最新'}</h2><span className="count-badge">{checking ? '…' : updates.length}</span></div><button className="text-button" disabled={checking} onClick={() => void checkUpdates(true)}><RefreshCw size={14} className={checking ? 'spin' : ''} />{checking ? '检查中' : '重新检查'}</button></div><p className="section-description">通过镜像仓库 API 读取 latest 摘要并与本地镜像比较，不会在检查阶段拉取镜像。</p><div className="update-cards">{updates.map((item, index) => <article className="update-card" key={item.id}><AppIcon name={item.name} color={colors[index % colors.length]} /><div className="update-info"><b>{imageName(item.image)}<span className="tag">latest</span></b><small>关联容器：{item.name}</small></div><button className="update-action" onClick={() => setModal({ kind: 'upgrade', container: item })}>升级<ArrowUpRight size={14} /></button></article>)}{!checking && !updates.length && !updateErrors.length && <p className="success-inline"><Check size={17} />当前容器使用的 latest 镜像均为最新</p>}{!checking && !!updateErrors.length && <p className="error-text">部分镜像检查失败，请在“镜像管理”中查看原因。</p>}</div><div className="update-foot"><span><span className="online-dot" />进入页面自动检查</span><span>固定版本标签不参与检查</span></div></section>
+          <section className="container-panel"><div className="list-heading"><div className="section-title"><h2>容器列表</h2><span className="muted">{containers.length} 个容器</span></div><div className="search"><Search size={16} /><Input aria-label="搜索容器" placeholder="搜索容器、镜像或项目…" value={query} onChange={(event) => setQuery(event.target.value)} /></div></div><div className="filter-line"><div className="filters">{['全部', '运行中', '已暂停', '已停止'].map((state) => <button key={state} onClick={() => setFilter(state)} className={filter === state ? 'selected' : ''}>{state}<span>{state === '全部' ? containers.length : containers.filter((item) => stateText(item.state) === state).length}</span></button>)}</div><span className="port-legend"><Network size={14} />宿主机端口 <ArrowRight size={13} /> 容器端口</span></div><ContainerTable items={visible} busy={busy} loading={loading} action={containerAction} restart={(item) => setModal({ kind: 'restart', container: item })} logs={(item) => setModal({ kind: 'logs', container: item })} /><div className="table-footer">显示 {visible.length} / {containers.length} 个容器<span><span className={system ? 'online-dot' : 'offline-dot'} />宿主机实时状态</span></div></section></>}
         {page === '镜像管理' && <div className="image-page-stack"><section className="settings-panel update-proxy-panel"><div className="settings-heading"><div><div className="section-title"><Network /><h2>更新检查网络代理</h2></div><p>代理只用于 DockerManager 访问镜像仓库清单，不会修改 Docker daemon，也不会自动作用于镜像升级拉取。</p></div><Button disabled={busy === 'update-proxy'} onClick={() => void saveUpdateProxy()}>{busy === 'update-proxy' ? '正在保存…' : '保存代理配置'}</Button></div><label className="proxy-enabled"><input type="checkbox" checked={updateProxy.enabled} onChange={(event) => setUpdateProxy((value) => ({ ...value, enabled: event.target.checked }))} /><span>启用更新检查代理</span></label><div className="proxy-fields"><label htmlFor="update-proxy-url">HTTP/HTTPS 代理地址<Input id="update-proxy-url" value={updateProxy.url} onChange={(event) => setUpdateProxy((value) => ({ ...value, url: event.target.value }))} placeholder="http://127.0.0.1:7890" /></label><label htmlFor="update-proxy-bypass">不使用代理的地址<Input id="update-proxy-bypass" value={updateProxy.noProxy} onChange={(event) => setUpdateProxy((value) => ({ ...value, noProxy: event.target.value }))} placeholder="localhost,127.0.0.1,.example.com" /></label></div></section><section className="container-panel"><div className="list-heading"><h2>本地镜像 <span className="muted">{images.length}</span></h2><Button variant="outline" disabled={checking} onClick={() => void checkUpdates(true)}><RefreshCw className={checking ? 'spin' : ''} />{checking ? '检查中' : '检查 latest 更新'}</Button></div><div className="image-list">{images.map((item, index) => <div className="image-row" key={`${item.id}-${item.tag}`}><AppIcon name={item.tag} color={colors[index % colors.length]} /><div className="grow"><b>{item.tag}</b><small>{item.containers.length ? `使用容器：${item.containers.join('、')}` : '未被容器使用'} · {formatBytes(item.size)}</small></div><span className={item.update?.status === 'error' ? 'error-text' : 'muted'}>{!isLatest(item.tag) ? '固定版本' : item.update?.status === 'checking' ? '检查中' : item.update?.available ? '有更新可用' : item.update?.status === 'error' ? item.update.error : checking ? '等待检查' : '已是最新'}</span></div>)}</div></section></div>}
-        {page === 'Compose 项目' && <div className="compose-grid">{projects.map((item) => <section className="compose-card" key={`${item.name}:${item.file}`}><div className="compose-icon"><Layers /></div><span className={`status ${item.status === 'running' ? 'running' : item.status === 'partial' ? 'paused' : 'stopped'}`}><i />{item.status === 'running' ? '运行中' : item.status === 'partial' ? '部分运行' : '已停止'}</span><h2>{item.name}</h2><p>{item.services.length} 个服务 · Docker Compose</p><code className="compose-file-path">/composeFile/{item.directory}/docker-compose.yml</code><div className="compose-services">{item.services.length ? item.services.map((service) => <span key={service}><span className={item.status === 'stopped' ? 'offline-dot' : 'online-dot'} />{service}</span>) : <span className="muted">当前没有运行中的服务</span>}</div><div className="compose-actions"><Button variant="outline" disabled={busy === `view:${item.name}`} onClick={() => void openProject(item)}>查看配置</Button>{item.status === 'stopped' ? <Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'start')}>启动</Button> : <Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'stop')}>停止</Button>}<Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'pull-up')}>更新</Button></div></section>)}{!loading && !projects.length && <div className="empty-card"><Layers size={30} /><b>还没有 Compose 项目</b><span>点击右上角"部署 Compose"创建第一个项目。</span></div>}</div>}
+        {page === 'Compose 项目' && <div className="compose-grid">{projects.map((item) => <section className="compose-card" key={`${item.name}:${item.file}`}><div className="compose-icon"><Layers /></div><span className={`status ${item.status === 'running' ? 'running' : item.status === 'partial' ? 'paused' : 'stopped'}`}><i />{item.status === 'running' ? '运行中' : item.status === 'partial' ? '部分运行' : '已停止'}</span><h2>{item.name}</h2><p>{item.services.length} 个服务 · Docker Compose</p><code className="compose-file-path">/composeFile/{item.directory}/docker-compose.yml</code><div className="compose-services">{item.services.length ? item.services.map((service) => <span key={service}><span className={item.status === 'stopped' ? 'offline-dot' : 'online-dot'} />{service}</span>) : <span className="muted">当前没有运行中的服务</span>}</div><div className="compose-actions"><Button variant="outline" disabled={busy === `view:${item.name}`} onClick={() => void openProject(item)}>查看配置</Button>{item.status === 'stopped' ? <Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'start')}>启动</Button> : <Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'stop')}>停止</Button>}<Button variant="ghost" disabled={busy === `project:${item.name}`} onClick={() => void projectAction(item, 'pull-up')}>更新</Button></div></section>)}{!loading && !projects.length && <div className="empty-card"><Layers size={30} /><b>还没有 Compose 项目</b><span>点击右上角“部署 Compose”创建第一个项目。</span></div>}</div>}
         {page === '启动顺序' && <StartupOrderPanel projects={projects} settings={startupSettings} busy={busy} setSettings={setStartupSettings} move={moveStartupProject} save={saveStartupOrder} />}
-        {page === '加速源配置' && <section className="settings-panel mirror-manager"><div className="settings-heading"><div><div className="section-title"><Zap /><h2>镜像加速源</h2></div><p>已自动读取宿主机 Docker 当前生效的配置。你可以添加、编辑、启用或停用镜像源。</p></div><div className="mirror-apply-actions"><Button variant="outline" disabled={!mirrorCanApply || busy === 'mirrors'} onClick={() => void applyMirrorConfig(false)}>仅热重载</Button><Button disabled={!mirrorCanApply || busy === 'mirrors'} onClick={() => void applyMirrorConfig(true)}>{busy === 'mirrors' ? '正在应用…' : '保存并重启 Docker'}</Button></div></div><div className="engine-mirror-state"><div><span className="online-dot" /><b>Docker Engine 当前生效</b></div>{activeMirrors.length ? <div className="active-mirror-tags">{activeMirrors.map((url) => <code key={url}>{url}</code>)}</div> : <span className="muted">当前未启用镜像加速源</span>}</div><div className="mirror-add"><Input aria-label="新镜像源地址" value={newMirror} onChange={(event) => setNewMirror(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addMirror(); }} placeholder="https://mirror.example.com" /><Button variant="outline" onClick={addMirror}><Plus />添加镜像源</Button></div><div className="mirror-list">{mirrorSources.map((source) => <article className={`mirror-source ${source.active ? 'is-active' : ''}`} key={source.id}><span className={source.active ? 'online-dot' : 'offline-dot'} /><Input aria-label={`编辑镜像源 ${source.url}`} value={source.url} onChange={(event) => setMirrorSources((sources) => sources.map((item) => item.id === source.id ? { ...item, url: event.target.value } : item))} /><label className="mirror-toggle"><input type="checkbox" checked={source.enabled} onChange={(event) => setMirrorSources((sources) => sources.map((item) => item.id === source.id ? { ...item, enabled: event.target.checked } : item))} /><span>{source.enabled ? '已启用' : '未启用'}</span></label>{source.active && <span className="engine-active">Engine 生效中</span>}<Button variant="ghost" size="icon" aria-label={`删除镜像源 ${source.url}`} onClick={() => setMirrorSources((sources) => sources.filter((item) => item.id !== source.id))}><Trash2 /></Button></article>)}{!mirrorSources.length && <div className="empty-mirrors"><Network /><b>还没有镜像源</b><span>添加地址后启用，并应用到宿主机。</span></div>}</div><div className="setting-note"><CircleHelp size={18} /><span>热重载不会中断容器；"保存并重启 Docker"会先停止受管 Compose 项目，再由宿主机按保存顺序启动。</span></div>{!mirrorCanApply && <p className="field-error">{mirrorApplyReason || '当前运行环境无法自动应用镜像源配置。'}</p>}{mirrorCanApply && startupSettings && !startupSettings.installed && <p className="field-error">重启前请先到"启动顺序"页面保存并启用宿主机启动钩子。</p>}</section>}
+        {page === '加速源配置' && <section className="settings-panel mirror-manager">
+          <div className="settings-heading"><div><div className="section-title"><Zap /><h2>镜像加速源</h2></div><p>已自动读取宿主机 Docker 当前生效的配置。测速会调整待保存顺序，应用后由 Docker Engine 优先使用响应最快的可用源。</p></div><div className="mirror-apply-actions"><Button variant="outline" disabled={!mirrorCanApply || busy === 'mirrors'} onClick={() => void applyMirrorConfig(false)}>仅热重载</Button><Button disabled={!mirrorCanApply || busy === 'mirrors'} onClick={() => void applyMirrorConfig(true)}>{busy === 'mirrors' ? '正在应用…' : '保存并重启 Docker'}</Button></div></div>
+          <div className="engine-mirror-state"><div><span className="online-dot" /><b>Docker Engine 当前生效</b></div>{activeMirrors.length ? <div className="active-mirror-tags">{activeMirrors.map((url) => <code key={url}>{url}</code>)}</div> : <span className="muted">当前未启用镜像加速源</span>}</div>
+          <div className="mirror-benchmark-panel">
+            <div className="mirror-benchmark-copy"><Gauge /><div><b>按目标镜像测速</b><span>并发读取 manifest，两轮取中位延迟并校验官方摘要。</span></div></div>
+            <div className="mirror-benchmark-action"><Input aria-label="测速使用的 Docker Hub 镜像" value={mirrorBenchmarkImage} onChange={(event) => setMirrorBenchmarkImage(event.target.value)} placeholder="nginx:latest" /><Button variant="outline" disabled={busy === 'mirror-benchmark' || !mirrorSources.some((source) => source.enabled)} onClick={() => void benchmarkMirrorConfig()}><Gauge />{busy === 'mirror-benchmark' ? '正在测速…' : '测速并优化顺序'}</Button></div>
+            {mirrorBenchmark && <div className="benchmark-summary"><span>测试镜像 <code>{mirrorBenchmark.image}</code></span><span>{mirrorBenchmark.referenceDigest ? '已通过 Docker Hub 摘要校验' : '官方仓库不可达，仅按可用性与延迟排序'}</span></div>}
+          </div>
+          <div className="mirror-add"><Input aria-label="新镜像源地址" value={newMirror} onChange={(event) => setNewMirror(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addMirror(); }} placeholder="https://mirror.example.com" /><Button variant="outline" onClick={addMirror}><Plus />添加镜像源</Button></div>
+          <div className="mirror-list">{mirrorSources.map((source, index) => {
+            const benchmark = mirrorBenchmark?.results.find((record) => record.sourceId === source.id);
+            return <article className={`mirror-source ${source.active ? 'is-active' : ''}`} key={source.id}>
+              <span className="mirror-priority">{source.enabled ? index + 1 : '—'}</span>
+              <span className={source.active ? 'online-dot' : 'offline-dot'} />
+              <Input aria-label={`编辑镜像源 ${source.url}`} value={source.url} onChange={(event) => { setMirrorBenchmark(null); setMirrorSources((sources) => sources.map((item) => item.id === source.id ? { ...item, url: event.target.value } : item)); }} />
+              <span className={`benchmark-result ${benchmark?.status || 'untested'}`} title={benchmark?.error || benchmark?.digest}>{benchmark?.status === 'ok' ? `${benchmark.latencyMs} ms` : benchmark?.status === 'mismatch' ? '摘要不一致' : benchmark?.status === 'error' ? '连接失败' : '未测速'}</span>
+              <label className="mirror-toggle"><input type="checkbox" checked={source.enabled} onChange={(event) => { setMirrorBenchmark(null); setMirrorSources((sources) => sources.map((item) => item.id === source.id ? { ...item, enabled: event.target.checked } : item)); }} /><span>{source.enabled ? '已启用' : '未启用'}</span></label>
+              {source.active && <span className="engine-active">Engine 生效中</span>}
+              {mirrorBenchmark?.recommendedSourceId === source.id && <span className="benchmark-best">推荐</span>}
+              <Button variant="ghost" size="icon" aria-label={`删除镜像源 ${source.url}`} onClick={() => { setMirrorBenchmark(null); setMirrorSources((sources) => sources.filter((item) => item.id !== source.id)); }}><Trash2 /></Button>
+            </article>;
+          })}{!mirrorSources.length && <div className="empty-mirrors"><Network /><b>还没有镜像源</b><span>添加地址后启用，并应用到宿主机。</span></div>}</div>
+          <div className="setting-note"><CircleHelp size={18} /><span>测速不会修改宿主机。完成后请执行热重载或保存并重启 Docker，新的优先级才会用于实际拉取。</span></div>{!mirrorCanApply && <p className="field-error">{mirrorApplyReason || '当前运行环境无法自动应用镜像源配置。'}</p>}{mirrorCanApply && startupSettings && !startupSettings.installed && <p className="field-error">重启前请先到“启动顺序”页面保存并启用宿主机启动钩子。</p>}
+        </section>}
         <footer className="main-footer"><span><Server size={14} />{system?.name || 'Docker host'} <span className="divider">/</span>{system?.architecture || '—'}</span><span>DockerManager <span className="divider">·</span> 宿主机容器管理</span></footer>
       </main></div>
     <OperationDialog modal={modal} setModal={setModal} project={project} setProject={setProject} directory={directory} setDirectory={setDirectory} compose={compose} setCompose={setCompose} existing={existing} checkingFile={checkingFile} fileChoice={fileChoice} setFileChoice={setFileChoice} projectValid={projectValid} directoryValid={directoryValid} filePath={filePath} composeIssues={composeIssues} busy={busy} deploy={deploy} action={containerAction} />
+    <ContainerLogsDialog container={modal?.kind === 'logs' ? modal.container : null} close={() => setModal(null)} />
     {notice && <output className={`notice ${notice.type}`}>{notice.type === 'ok' ? <Check size={17} /> : <CircleHelp size={17} />}{notice.text}</output>}
   </div>;
 }
@@ -412,13 +488,21 @@ function StartupOrderPanel({
       <article
         className={`startup-row ${preference.enabled ? '' : 'disabled'} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
         key={preference.directory}
-        draggable
-        onDragStart={() => handleDragStart(preference.directory)}
-        onDragOver={(e) => handleDragOver(e, preference.directory)}
-        onDrop={(e) => handleDrop(e, preference.directory)}
-        onDragEnd={handleDragEnd}
       >
-        <span className="startup-number">{index + 1}</span>
+        <button
+          type="button"
+          className="startup-number"
+          draggable
+          aria-label={`拖动或使用方向键调整 ${project?.name || preference.directory} 的顺序`}
+          onDragStart={() => handleDragStart(preference.directory)}
+          onDragOver={(event) => handleDragOver(event, preference.directory)}
+          onDrop={(event) => handleDrop(event, preference.directory)}
+          onDragEnd={handleDragEnd}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowUp') move(preference.directory, -1);
+            if (event.key === 'ArrowDown') move(preference.directory, 1);
+          }}
+        >{index + 1}</button>
         <div className="startup-project">
           <b>{project?.name || preference.directory}</b>
           <small>/composeFile/{preference.directory}/docker-compose.yml</small>
@@ -556,7 +640,7 @@ function StartupOrderPanel({
       </div>
       {!settings?.canInstall && settings && (
         <p className="field-error">
-          当前环境未检测到可用的 systemd 宿主机集成。你仍可点击"保存并启用"执行实际安装检查；Docker Desktop 和 rootless
+          当前环境未检测到可用的 systemd 宿主机集成。你仍可点击“保存并启用”执行实际安装检查；Docker Desktop 和 rootless
           Docker 不支持此功能。
         </p>
       )}
@@ -564,13 +648,112 @@ function StartupOrderPanel({
   );
 }
 
-function ContainerTable({ items, busy, loading, action, restart }: { items: Container[]; busy: string | null; loading: boolean; action: (item: Container, action: string) => Promise<void>; restart: (item: Container) => void }) {
-  return <div className="table-scroll"><table><thead><tr><th>容器 / 镜像</th><th>状态</th><th>端口映射 <span className="th-sub">宿主机 → 容器</span></th><th>Compose 项目</th><th>内存</th><th className="right">操作</th></tr></thead><tbody>{items.map((item, index) => <tr key={item.id}><td><div className="container-name"><AppIcon name={item.name} color={colors[index % colors.length]} small /><div><b>{item.name}{item.update?.available && <span className="update-dot" title="镜像可升级" />}</b><small title={item.image}>{item.image}</small></div></div></td><td><span className={`status ${item.state}`}><i />{stateText(item.state)}</span></td><td><div className="ports">{item.ports.length ? item.ports.map((port, i) => <div className="port-pair" key={i}><code title={port.hostIp || '所有宿主机地址'}>{port.hostIp ? `${port.hostIp}:${port.host ?? '—'}` : port.host ?? '—'}</code><ArrowRight size={13} /><code>{port.container}</code><span>{port.protocol}</span></div>) : <span className="muted">未映射</span>}</div></td><td><span className="project-label">{item.project && <Layers size={13} />}{item.project || '独立容器'}</span></td><td className="memory">{item.memory}</td><td><div className="row-actions">{item.state === 'running' ? <><IconButton label={`暂停 ${item.name}`} disabled={busy === `container:${item.id}`} onClick={() => void action(item, 'pause')}><Pause /></IconButton><IconButton label={`停止 ${item.name}`} disabled={busy === `container:${item.id}`} onClick={() => void action(item, 'stop')}><Square /></IconButton></> : <IconButton label={`启动或恢复 ${item.name}`} disabled={busy === `container:${item.id}`} onClick={() => void action(item, item.state === 'paused' ? 'unpause' : 'start')}><Play /></IconButton>}<IconButton label={`重启 ${item.name}`} disabled={busy === `container:${item.id}`} onClick={() => restart(item)}><RefreshCw /></IconButton></div></td></tr>)}</tbody></table>{!loading && !items.length && <div className="empty">没有匹配的容器。</div>}{loading && <div className="empty"><RefreshCw className="spin" />正在读取宿主机容器…</div>}</div>;
+function ContainerTable({ items, busy, loading, action, restart, logs }: { items: Container[]; busy: string | null; loading: boolean; action: (item: Container, action: string) => Promise<void>; restart: (item: Container) => void; logs: (item: Container) => void }) {
+  return <div className="table-scroll"><table><thead><tr><th>容器 / 镜像</th><th>状态</th><th>端口映射 <span className="th-sub">宿主机 → 容器</span></th><th>Compose 项目</th><th>内存</th><th className="right">操作</th></tr></thead><tbody>{items.map((item, index) => <tr key={item.id}><td><div className="container-name"><AppIcon name={item.name} color={colors[index % colors.length]} small /><div><b>{item.name}{item.update?.available && <span className="update-dot" title="镜像可升级" />}</b><small title={item.image}>{item.image}</small></div></div></td><td><span className={`status ${item.state}`}><i />{stateText(item.state)}</span></td><td><div className="ports">{item.ports.length ? item.ports.map((port, i) => <div className="port-pair" key={i}><code title={port.hostIp || '所有宿主机地址'}>{port.hostIp ? `${port.hostIp}:${port.host ?? '—'}` : port.host ?? '—'}</code><ArrowRight size={13} /><code>{port.container}</code><span>{port.protocol}</span></div>) : <span className="muted">未映射</span>}</div></td><td><span className="project-label">{item.project && <Layers size={13} />}{item.project || '独立容器'}</span></td><td className="memory">{item.memory}</td><td><div className="row-actions"><IconButton label={`查看 ${item.name} 日志`} onClick={() => logs(item)}><Terminal /></IconButton>{item.state === 'running' ? <><IconButton label={`暂停 ${item.name}`} disabled={busy === `container:${item.id}`} onClick={() => void action(item, 'pause')}><Pause /></IconButton><IconButton label={`停止 ${item.name}`} disabled={busy === `container:${item.id}`} onClick={() => void action(item, 'stop')}><Square /></IconButton></> : <IconButton label={`启动或恢复 ${item.name}`} disabled={busy === `container:${item.id}`} onClick={() => void action(item, item.state === 'paused' ? 'unpause' : 'start')}><Play /></IconButton>}<IconButton label={`重启 ${item.name}`} disabled={busy === `container:${item.id}`} onClick={() => restart(item)}><RefreshCw /></IconButton></div></td></tr>)}</tbody></table>{!loading && !items.length && <div className="empty">没有匹配的容器。</div>}{loading && <div className="empty"><RefreshCw className="spin" />正在读取宿主机容器…</div>}</div>;
+}
+
+function ContainerLogsDialog({ container, close }: { container: Container | null; close: () => void }) {
+  const [result, setResult] = useState<ContainerLogResponse | null>(null);
+  const [tail, setTail] = useState(500);
+  const [since, setSince] = useState(3600);
+  const [query, setQuery] = useState('');
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [followTail, setFollowTail] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const viewport = useRef<HTMLDivElement>(null);
+
+  const load = useCallback(async (quiet = false) => {
+    if (!container) return;
+    if (!quiet) setLoading(true);
+    try {
+      const data = await api<ContainerLogResponse>(`/api/containers/${container.id}/logs?tail=${tail}&since=${since}`);
+      setResult(data);
+      setError('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      if (!quiet) setLoading(false);
+    }
+  }, [container, since, tail]);
+
+  useEffect(() => {
+    if (!container) return;
+    const timer = window.setTimeout(() => {
+      setResult(null); setQuery(''); setError(''); void load();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [container, load]);
+  useEffect(() => {
+    if (!container || !autoRefresh) return;
+    const timer = window.setInterval(() => void load(true), 5_000);
+    return () => window.clearInterval(timer);
+  }, [autoRefresh, container, load]);
+  useEffect(() => {
+    if (!followTail || !viewport.current) return;
+    viewport.current.scrollTop = viewport.current.scrollHeight;
+  }, [followTail, result]);
+
+  const visible = (result?.lines || []).filter((line) =>
+    `${line.stream} ${line.message}`.toLowerCase().includes(query.toLowerCase()),
+  );
+  const stderrCount = (result?.lines || []).filter((line) => line.stream === 'stderr').length;
+  const text = visible.map((line) => `${line.timestamp || ''} [${line.stream}] ${line.message}`).join('\n');
+
+  async function copyLogs() {
+    await navigator.clipboard.writeText(text);
+  }
+  function downloadLogs() {
+    if (!container) return;
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${container.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}-${new Date().toISOString().replaceAll(':', '-')}.log`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return <Dialog open={Boolean(container)} onOpenChange={(open) => { if (!open) close(); }}>
+    <DialogContent className="logs-dialog">
+      <DialogTitle><Terminal />{container?.name || '容器'} 日志</DialogTitle>
+      <DialogDescription>{container?.image || ''}</DialogDescription>
+      <div className="log-runtime">
+        <span><i className={result?.container.running ? 'online-dot' : 'offline-dot'} />{result?.container.state || container?.status || '读取中'}</span>
+        <span>PID <b>{result?.container.pid || '—'}</b></span>
+        <span>退出码 <b>{result?.container.exitCode ?? '—'}</b></span>
+        <span>重启 <b>{result?.container.restartCount ?? '—'}</b> 次</span>
+        <span>驱动 <b>{result?.container.logDriver || '—'}</b></span>
+        {result?.container.oomKilled && <span className="log-danger"><AlertTriangle />发生过 OOM Kill</span>}
+      </div>
+      <div className="log-controls">
+        <label>时间范围<select value={since} onChange={(event) => setSince(Number(event.target.value))}><option value={900}>最近 15 分钟</option><option value={3600}>最近 1 小时</option><option value={21600}>最近 6 小时</option><option value={86400}>最近 24 小时</option><option value={0}>不限时间</option></select></label>
+        <label>尾部行数<select value={tail} onChange={(event) => setTail(Number(event.target.value))}><option value={100}>100 行</option><option value={500}>500 行</option><option value={1000}>1000 行</option><option value={2000}>2000 行</option></select></label>
+        <div className="log-search"><Search /><Input aria-label="搜索日志" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="筛选日志内容…" /></div>
+        <Button variant="outline" disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? 'spin' : ''} />刷新</Button>
+        <IconButton label="复制当前日志" disabled={!visible.length} onClick={() => void copyLogs()}><Copy /></IconButton>
+        <IconButton label="下载当前日志" disabled={!visible.length} onClick={downloadLogs}><Download /></IconButton>
+      </div>
+      <div className="log-options"><label><input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />每 5 秒自动刷新</label><label><input type="checkbox" checked={followTail} onChange={(event) => setFollowTail(event.target.checked)} />自动滚动到底部</label><span>{result ? `${result.lines.length} 行 · stderr ${stderrCount} 行 · ${formatLogTime(result.readAt)} 更新` : '等待日志'}</span></div>
+      <div className="log-viewport" ref={viewport}>
+        {error && <div className="log-error"><AlertTriangle />{error}</div>}
+        {!error && loading && !result && <div className="log-empty"><RefreshCw className="spin" />正在读取 Docker 日志…</div>}
+        {!error && !loading && result && !visible.length && <div className="log-empty">当前范围内没有匹配的日志。</div>}
+        {visible.map((line, index) => <div className={`log-line ${line.stream}`} key={`${line.timestamp || 'line'}-${index}`}><time>{line.timestamp ? formatLogTime(line.timestamp) : '无时间戳'}</time><span className="log-stream">{line.stream}</span><pre>{line.message || ' '}</pre></div>)}
+      </div>
+      <div className="log-footer"><span>{result?.container.startedAt ? `启动于 ${formatLogTime(result.container.startedAt)}` : '尚无启动时间'}</span>{result?.container.error && <span className="log-danger">{result.container.error}</span>}<Button variant="outline" onClick={close}>关闭</Button></div>
+    </DialogContent>
+  </Dialog>;
+}
+
+function formatLogTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
 }
 
 type DialogProps = { modal: Modal; setModal: (value: Modal) => void; project: string; setProject: (value: string) => void; directory: string; setDirectory: (value: string) => void; compose: string; setCompose: (value: string) => void; existing: { exists: boolean; content: string | null } | null; checkingFile: boolean; fileChoice: 'overwrite' | 'reference' | null; setFileChoice: (value: 'overwrite' | 'reference' | null) => void; projectValid: boolean; directoryValid: boolean; filePath: string; composeIssues: ReturnType<typeof validateCompose>; busy: string | null; deploy: () => Promise<void>; action: (item: Container, action: string) => Promise<void> };
 function OperationDialog(props: DialogProps) {
   const { modal } = props;
+  if (modal?.kind === 'logs') return null;
   return <Dialog open={!!modal} onOpenChange={(open) => { if (!open) props.setModal(null); }}><DialogContent className={`operation-dialog ${modal?.kind === 'compose' || modal?.kind === 'view' ? 'compose-dialog' : ''}`}><DialogTitle>{modal?.kind === 'upgrade' ? '升级 latest 镜像' : modal?.kind === 'compose' ? '部署 Compose' : modal?.kind === 'view' ? 'Compose 配置' : modal?.kind === 'restart' ? '重启容器' : '使用说明'}</DialogTitle><DialogDescription>{modal?.kind === 'upgrade' ? `将拉取 ${modal.container.image} 并重建 ${modal.container.name}。` : modal?.kind === 'restart' ? `重启 ${modal.container.name} 会短暂中断服务。` : modal?.kind === 'compose' ? '文件固定保存为所选子目录下的 docker-compose.yml，部署前会执行完整配置校验。' : modal?.kind === 'view' ? `/composeFile/${modal.project.directory}/docker-compose.yml` : '所有操作均会直接作用于已连接的宿主机 Docker。'}</DialogDescription>
     {modal?.kind === 'upgrade' && <div className="confirm-info"><p><Check size={16} />保留端口、环境变量和数据卷</p><p><Layers size={16} />Compose 容器通过所属项目更新</p><p><Activity size={16} />失败时尝试恢复原容器</p></div>}
     {(modal?.kind === 'compose' || modal?.kind === 'view') && <div className="compose-workspace"><section className="compose-settings"><h3>项目配置</h3><label htmlFor="project">项目名称</label><Input id="project" value={props.project} readOnly={modal.kind === 'view'} onChange={(e) => props.setProject(e.target.value)} placeholder="例如：my-services" />{modal.kind === 'compose' && <>{props.project && !props.projectValid && <p className="field-error">项目名称格式无效。</p>}<div className="mount-info"><Server size={17} /><span>宿主机 Compose 目录<ArrowRight size={14} /><code>/composeFile</code></span></div><label htmlFor="compose-directory">保存子目录</label><div className="directory-input"><span>/composeFile/</span><Input id="compose-directory" value={props.directory} placeholder="例如：apps/nginx" aria-invalid={!!props.directory && !props.directoryValid} onChange={(e) => { props.setDirectory(e.target.value); props.setFileChoice(null); }} /></div><p className="field-hint">不能使用绝对路径或 ..。</p>{props.directory && !props.directoryValid && <p className="field-error">请输入有效的相对子目录。</p>}{props.filePath && <code className="file-destination">{props.checkingFile ? '正在检查…' : props.filePath}</code>}{props.existing?.exists && <div className="existing-file"><b>检测到已有 docker-compose.yml</b><p>{props.fileChoice === 'reference' ? '已加载现有内容，部署时不会覆盖文件。' : props.fileChoice === 'overwrite' ? '部署时会用右侧内容覆盖已有文件。' : '继续前请选择处理方式。'}</p><div><Button variant={props.fileChoice === 'overwrite' ? 'default' : 'outline'} onClick={() => props.setFileChoice('overwrite')}>覆盖已有文件</Button><Button variant={props.fileChoice === 'reference' ? 'default' : 'outline'} onClick={() => { props.setCompose(props.existing?.content || ''); props.setFileChoice('reference'); }}>引用已有内容</Button></div></div>}</>}{modal.kind === 'view' && <code className="file-destination">/composeFile/{modal.project.directory}/docker-compose.yml</code>}</section><section className="compose-editing"><ComposeEditor value={props.compose} onChange={props.setCompose} readOnly={modal.kind === 'view' || props.fileChoice === 'reference'} errorLines={props.composeIssues.map((issue) => issue.line)} /><div id="compose-validation" className={`compose-validation ${props.composeIssues.length ? 'invalid' : 'valid'}`}>{props.composeIssues.length ? <><b>检测到 {props.composeIssues.length} 处问题</b><ul>{props.composeIssues.map((issue, i) => <li key={i}><strong>第 {issue.line} 行，第 {issue.column} 列</strong><span>{issue.message}</span></li>)}</ul></> : <span><Check size={15} />YAML 语法与基础结构校验通过</span>}</div><p className="field-hint">部署前还会执行 <code>docker compose config --quiet</code>。</p></section></div>}

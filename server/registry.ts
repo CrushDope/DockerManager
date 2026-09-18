@@ -28,14 +28,18 @@ export function parseRegistryReference(image: string): RegistryReference {
   }
 }
 
-async function request(url: string, init: { method?: string; headers?: Record<string, string> }) {
+async function request(
+  url: string,
+  init: { method?: string; headers?: Record<string, string> },
+  timeoutMs = config.updatePullTimeoutMs,
+) {
   let dispatcher: Dispatcher | undefined;
   try {
     dispatcher = await proxyDispatcher(url);
     return await fetch(url, {
       ...init,
       dispatcher,
-      signal: AbortSignal.timeout(config.updatePullTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -50,7 +54,7 @@ function bearerParameters(header: string) {
   return values;
 }
 
-async function registryToken(challenge: string, reference: RegistryReference) {
+async function registryToken(challenge: string, reference: RegistryReference, timeoutMs: number) {
   const parameters = bearerParameters(challenge);
   if (!parameters?.get('realm')) {
     throw new RegistryError('镜像仓库需要当前版本不支持的认证方式');
@@ -61,7 +65,7 @@ async function registryToken(challenge: string, reference: RegistryReference) {
     'scope',
     parameters.get('scope') || `repository:${reference.repository}:pull`,
   );
-  const response = await request(url.toString(), { headers: { Accept: 'application/json' } });
+  const response = await request(url.toString(), { headers: { Accept: 'application/json' } }, timeoutMs);
   if (!response.ok) throw new RegistryError(`镜像仓库认证失败（HTTP ${response.status}）`);
   const value = (await response.json()) as { token?: string; access_token?: string };
   const token = value.token || value.access_token;
@@ -69,29 +73,31 @@ async function registryToken(challenge: string, reference: RegistryReference) {
   return token;
 }
 
-async function manifestRequest(url: string, authorization?: string): Promise<Response> {
+async function manifestRequest(url: string, authorization: string | undefined, timeoutMs: number): Promise<Response> {
   return request(url, {
     method: 'HEAD',
     headers: {
       Accept: manifestAccept,
       ...(authorization ? { Authorization: authorization } : {}),
     },
-  });
+  }, timeoutMs);
 }
 
 async function tryManifestDigest(
   reference: RegistryReference,
-  registryHost: string,
+  registryUrl: string,
+  timeoutMs = config.updatePullTimeoutMs,
 ): Promise<string> {
-  const url = `${reference.protocol}//${registryHost}/v2/${reference.repository}/manifests/${encodeURIComponent(reference.tag)}`;
+  const base = registryUrl.replace(/\/$/, '');
+  const url = `${base}/v2/${reference.repository}/manifests/${encodeURIComponent(reference.tag)}`;
   let authorization: string | undefined;
-  let response = await manifestRequest(url);
+  let response = await manifestRequest(url, undefined, timeoutMs);
   if (response.status === 401) {
     const challenge = response.headers.get('www-authenticate') || '';
     await response.body?.cancel();
-    const token = await registryToken(challenge, reference);
+    const token = await registryToken(challenge, reference, timeoutMs);
     authorization = `Bearer ${token}`;
-    response = await manifestRequest(url, authorization);
+    response = await manifestRequest(url, authorization, timeoutMs);
   }
   if (!response.ok && response.status !== 405) {
     await response.body?.cancel();
@@ -107,7 +113,7 @@ async function tryManifestDigest(
       Accept: manifestAccept,
       ...(authorization ? { Authorization: authorization } : {}),
     },
-  });
+  }, timeoutMs);
   if (!fallback.ok) throw new RegistryError(`无法读取镜像清单摘要`);
   const fallbackDigest = fallback.headers.get('docker-content-digest');
   if (fallbackDigest) {
@@ -118,12 +124,18 @@ async function tryManifestDigest(
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
+export async function manifestDigestFrom(
+  image: string,
+  registryUrl: string,
+  timeoutMs = config.updatePullTimeoutMs,
+) {
+  const reference = parseRegistryReference(image);
+  return tryManifestDigest(reference, registryUrl, timeoutMs);
+}
+
 export async function remoteManifestDigest(image: string, mirrors: string[] = []) {
   const reference = parseRegistryReference(image);
-  const registries = [
-    ...mirrors.map((mirror) => new URL(mirror).host),
-    reference.registry,
-  ];
+  const registries = [...mirrors, `${reference.protocol}//${reference.registry}`];
 
   console.log(`[Registry] 开始检查镜像 ${image}，尝试 ${registries.length} 个源:`, registries);
 

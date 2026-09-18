@@ -17,6 +17,7 @@ type RequestOptions = {
   headers?: IncomingHttpHeaders;
   accept?: number[];
   timeoutMs?: number;
+  raw?: boolean;
 };
 
 export async function dockerRequest<T>(path: string, options: RequestOptions = {}) {
@@ -59,7 +60,8 @@ export async function dockerRequest<T>(path: string, options: RequestOptions = {
           ),
         );
         response.on('end', () => {
-          const text = Buffer.concat(chunks).toString('utf8');
+          const raw = Buffer.concat(chunks);
+          const text = raw.toString('utf8');
           const status = response.statusCode || 500;
           const accepted = options.accept || [200, 201, 204];
           let parsed: unknown = text;
@@ -78,7 +80,7 @@ export async function dockerRequest<T>(path: string, options: RequestOptions = {
             finish(() => reject(new DockerError(message, status, parsed)));
             return;
           }
-          finish(() => resolve((text ? parsed : undefined) as T));
+          finish(() => resolve((options.raw ? raw : text ? parsed : undefined) as T));
         });
       },
     );

@@ -28,6 +28,9 @@ import {
   upgradeContainer,
 } from './updates.js';
 import { applyMirrors, getMirrors, MirrorError, saveMirrors } from './mirrors.js';
+import { benchmarkMirrors } from './mirror-benchmark.js';
+import { getContainerLogs } from './logs.js';
+import { MirrorValidationError } from '../lib/mirror-sources.js';
 import {
   getUpdateProxy,
   saveUpdateProxy,
@@ -235,6 +238,15 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
   if (method === 'GET' && url.pathname === '/api/containers') {
     return json(response, 200, { containers: await containers() });
   }
+  const containerLogs = url.pathname.match(/^\/api\/containers\/([a-f0-9]{12,64})\/logs$/i);
+  if (method === 'GET' && containerLogs) {
+    const tail = Number(url.searchParams.get('tail') || 500);
+    const sinceSeconds = Number(url.searchParams.get('since') || 0);
+    if (!Number.isFinite(tail) || !Number.isFinite(sinceSeconds)) {
+      throw new HttpError('日志查询参数无效', 400, 'LOG_QUERY_INVALID');
+    }
+    return json(response, 200, await getContainerLogs(containerLogs[1], tail, sinceSeconds));
+  }
   if (method === 'GET' && url.pathname === '/api/images') {
     return json(response, 200, { images: await images() });
   }
@@ -344,6 +356,10 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     const input = await body(request);
     return json(response, 200, await applyMirrors(input.sources));
   }
+  if (method === 'POST' && url.pathname === '/api/docker/mirrors/benchmark') {
+    const input = await body(request);
+    return json(response, 200, await benchmarkMirrors(input.sources, input.image));
+  }
   throw new HttpError('接口不存在', 404, 'NOT_FOUND');
 }
 
@@ -425,6 +441,7 @@ const server = createServer(async (request, response) => {
       error instanceof DockerError ||
       error instanceof ComposeError ||
       error instanceof MirrorError ||
+      error instanceof MirrorValidationError ||
       error instanceof UpdateProxyError ||
       error instanceof RestartError
         ? error.statusCode
@@ -433,6 +450,7 @@ const server = createServer(async (request, response) => {
       error instanceof HttpError ||
       error instanceof ComposeError ||
       error instanceof MirrorError ||
+      error instanceof MirrorValidationError ||
       error instanceof UpdateProxyError ||
       error instanceof RestartError
         ? error.code
@@ -447,6 +465,6 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(config.port, config.host, () => {
-  console.log(`NasDocker listening on http://${config.host}:${config.port}`);
+  console.log(`DockerManager listening on http://${config.host}:${config.port}`);
   if (!config.adminPassword) console.warn('Development mode: authentication is disabled');
 });

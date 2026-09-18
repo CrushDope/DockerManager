@@ -22,7 +22,9 @@ docker pull projectdown/docker-manager:latest
 - 部署、启动、停止和更新 Compose 项目
 - 配置 Compose 启动顺序，并由宿主机 systemd 在每次 Docker 启动后依次恢复
 - 自动读取 Docker Engine 当前镜像源，并支持新增、编辑、启用和停用
+- 按目标 Docker Hub 镜像并发测速加速源，校验摘要并优化拉取优先级
 - 为 latest 更新检查单独配置 HTTP/HTTPS 网络代理，不修改 Docker daemon 代理
+- 查看容器 stdout/stderr 详细日志，支持时间范围、行数、筛选、自动刷新和下载
 - 应用内登录保护，同时保留 HTTP Basic 供 API 脚本使用
 
 ## 部署

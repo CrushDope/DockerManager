@@ -22,6 +22,7 @@ export const config = {
   adminPassword: process.env.ADMIN_PASSWORD || '',
   updateCacheMs: integer(process.env.UPDATE_CACHE_MINUTES, 10) * 60_000,
   updatePullTimeoutMs: integer(process.env.UPDATE_PULL_TIMEOUT_SECONDS, 120) * 1_000,
+  mirrorBenchmarkTimeoutMs: integer(process.env.MIRROR_BENCHMARK_TIMEOUT_SECONDS, 8) * 1_000,
   updateCheckProxy: process.env.UPDATE_CHECK_PROXY || '',
   updateCheckNoProxy: process.env.UPDATE_CHECK_NO_PROXY || '',
   bodyLimit: integer(process.env.BODY_LIMIT_BYTES, 2 * 1024 * 1024),
