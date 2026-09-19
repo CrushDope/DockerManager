@@ -21,6 +21,7 @@ export type Container = {
   imageId: string;
   project: string | null;
   service: string | null;
+  self: boolean;
   state: 'running' | 'paused' | 'stopped';
   status: string;
   ports: PortMapping[];

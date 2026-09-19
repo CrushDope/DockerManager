@@ -16,7 +16,7 @@ docker pull projectdown/docker-manager:latest
 
 - 查看容器状态、内存和“宿主机端口 → 容器端口”映射
 - 启动、停止、暂停、恢复和重启容器
-- 进入页面时检查正在使用的 `latest` 镜像，并升级容器
+- 进入页面时检查正在使用的 `latest` 镜像；升级 Compose 服务时先拉取再按服务重建
 - 在 `/composeFile` 的子目录中创建或引用固定名称的 `docker-compose.yml`
 - 同时执行前端 YAML 校验与 `docker compose config --quiet` 校验
 - 部署、启动、停止和更新 Compose 项目
@@ -25,6 +25,7 @@ docker pull projectdown/docker-manager:latest
 - 按目标 Docker Hub 镜像并发测速加速源，校验摘要并优化拉取优先级
 - 为 latest 更新检查单独配置 HTTP/HTTPS 网络代理，不修改 Docker daemon 代理
 - 查看容器 stdout/stderr 详细日志，支持时间范围、行数、筛选、自动刷新和下载
+- 升级时显示镜像分层拉取进度、Compose 输出和完整任务日志
 - 应用内登录保护，同时保留 HTTP Basic 供 API 脚本使用
 
 ## 部署
@@ -62,7 +63,9 @@ docker compose up -d --build
 
 如果 Docker 使用了自定义配置文件路径，可在 `.env` 中设置 `HOST_DOCKER_CONFIG_PATH`。Rootless Docker 通常不使用 `/etc/docker/daemon.json`，需要把该变量设置为 rootless daemon 实际读取的配置文件；如果 Docker 禁止宿主机 PID 命名空间或特权容器，则只能在宿主机上手动重载配置。
 
-镜像更新检查会直接读取镜像仓库的 manifest 摘要，不会为了检查而拉取镜像。可在“镜像管理”页面或通过 `UPDATE_CHECK_PROXY` 配置只供更新检查使用的 HTTP/HTTPS 代理；这个代理不会写入 Docker daemon，也不会影响正式升级时的镜像拉取。单个镜像仓库超过 `UPDATE_PULL_TIMEOUT_SECONDS`（默认 120 秒）仍未响应时，该镜像会显示超时错误，其他镜像继续检查。
+镜像更新检查会直接读取镜像仓库的 manifest 摘要，不会为了检查而拉取镜像。可在“镜像管理”页面或通过 `UPDATE_CHECK_PROXY` 配置只供更新检查使用的 HTTP/HTTPS 代理；这个代理不会写入 Docker daemon，也不会影响正式升级时的镜像拉取。单次 manifest 请求由 `UPDATE_CHECK_TIMEOUT_SECONDS` 控制，默认 30 秒；正式拉取由 `UPDATE_PULL_TIMEOUT_SECONDS` 控制，默认 900 秒。Docker Hub 镜像会使用已启用的加速源，私有仓库只访问镜像名称中指定的 Registry。
+
+Compose 容器升级会先执行目标服务的 `docker compose pull`，拉取成功后再执行 `docker compose up -d --no-deps`，拉取失败时不会先停止现有服务。DockerManager 不能在自身请求进程中停止并重建自己；升级 DockerManager 请在宿主机执行 `docker compose pull docker-manager && docker compose up -d docker-manager`。
 
 在“启动顺序”页面保存配置后，DockerManager 会在宿主机安装 `docker-manager-compose-restore.service`。该服务挂到 `docker.service`，所以服务器开机、宿主机手动执行 `systemctl start docker` 或 `systemctl restart docker`、以及页面触发重启时都会使用相同顺序。启用接管的项目会改用 `restart=no`，避免 Docker 在 systemd 顺序任务之前并行恢复容器；取消接管时会按 Compose 文件恢复 restart 策略。该功能要求宿主机使用 systemd，并允许 DockerManager 通过 Docker Socket 创建一次性特权辅助容器。
 

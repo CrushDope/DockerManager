@@ -5,6 +5,8 @@ import { spawn } from 'node:child_process';
 import { config } from './config.js';
 import { validateCompose } from '../lib/validate-compose.js';
 import { validateComposeDirectory } from '../lib/compose-path.js';
+import { dockerRequest, type DockerContainer } from './docker.js';
+import { composeConfigMatches } from '../lib/update-plan.js';
 
 export class ComposeError extends Error {
   constructor(
@@ -57,7 +59,12 @@ function composeProjectName(directory: string) {
     .replace(/^-+|-+$/g, '') || 'compose-project';
 }
 
-export async function runCommand(command: string, args: string[], cwd?: string) {
+export async function runCommand(
+  command: string,
+  args: string[],
+  cwd?: string,
+  onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void,
+) {
   return new Promise<{ stdout: string; stderr: string }>((resolveCommand, reject) => {
     const child = spawn(command, args, {
       cwd,
@@ -71,10 +78,12 @@ export async function runCommand(command: string, args: string[], cwd?: string) 
     child.stdout.on('data', (chunk) => {
       size += chunk.length;
       if (size <= maxOutput) stdout.push(Buffer.from(chunk));
+      onOutput?.('stdout', Buffer.from(chunk).toString('utf8'));
     });
     child.stderr.on('data', (chunk) => {
       size += chunk.length;
       if (size <= maxOutput) stderr.push(Buffer.from(chunk));
+      onOutput?.('stderr', Buffer.from(chunk).toString('utf8'));
     });
     child.on('error', (error) => reject(new ComposeError(error.message, 503)));
     child.on('close', (code) => {
@@ -95,13 +104,18 @@ export async function runCommand(command: string, args: string[], cwd?: string) 
   });
 }
 
-export async function runCompose(file: string, args: string[], project?: string) {
+export async function runCompose(
+  file: string,
+  args: string[],
+  project?: string,
+  onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void,
+) {
   await assertInsideRoot(dirname(file));
   const name = project || composeProjectName(relative(config.composeRoot, dirname(file)));
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) {
     throw new ComposeError('Compose 项目名称无效');
   }
-  return runCommand('docker', ['compose', '-p', name, '-f', file, ...args], dirname(file));
+  return runCommand('docker', ['compose', '-p', name, '-f', file, ...args], dirname(file), onOutput);
 }
 
 export async function readComposeFile(directory: string) {
@@ -212,6 +226,7 @@ async function composePs(file: string, project: string) {
 export async function listComposeProjects(): Promise<ComposeProject[]> {
   await mkdir(config.composeRoot, { recursive: true });
   const files = await findComposeFiles(config.composeRoot);
+  const containers = await dockerRequest<DockerContainer[]>('/containers/json?all=1').catch(() => []);
   return Promise.all(
     files.map(async (file) => {
       const directory = relative(config.composeRoot, dirname(file)).split(sep).join('/');
@@ -227,6 +242,15 @@ export async function listComposeProjects(): Promise<ComposeProject[]> {
       } catch {
         // Existing Compose directories do not have NasDocker metadata yet.
       }
+      const matchedContainer = containers.find((container) => {
+        const labels = container.Labels || {};
+        return composeConfigMatches(
+          directory,
+          String(labels['com.docker.compose.project.config_files'] || ''),
+        );
+      });
+      const labelProject = matchedContainer?.Labels?.['com.docker.compose.project'];
+      if (labelProject && /^[a-z0-9][a-z0-9_-]*$/.test(labelProject)) savedName = labelProject;
       const services = await composePs(file, savedName);
       const discoveredName = String(services[0]?.Project || savedName);
       const states = services.map((service) => String(service.State || '').toLowerCase());

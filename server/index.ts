@@ -22,10 +22,12 @@ import {
 } from './compose.js';
 import {
   checkLatestImages,
+  getUpdateTask,
   listUpdateStates,
+  startContainerUpgrade,
   updateFor,
   updateScanRunning,
-  upgradeContainer,
+  UpdateError,
 } from './updates.js';
 import { applyMirrors, getMirrors, MirrorError, saveMirrors } from './mirrors.js';
 import { benchmarkMirrors } from './mirror-benchmark.js';
@@ -180,6 +182,8 @@ async function containers() {
         imageId: container.ImageID,
         project: container.Labels?.['com.docker.compose.project'] || null,
         service: container.Labels?.['com.docker.compose.service'] || null,
+        self:
+          (container.Names[0]?.replace(/^\//, '') || '') === config.managerContainerName,
         state,
         status: container.Status,
         ports: normalizePortMappings(container.Ports),
@@ -253,6 +257,10 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
   if (method === 'GET' && url.pathname === '/api/updates') {
     return json(response, 200, { updates: listUpdateStates(), running: updateScanRunning() });
   }
+  const updateTask = url.pathname.match(/^\/api\/updates\/tasks\/([a-f0-9-]{36})$/i);
+  if (method === 'GET' && updateTask) {
+    return json(response, 200, getUpdateTask(updateTask[1]));
+  }
   if (method === 'POST' && url.pathname === '/api/updates/check') {
     const input = await body(request);
     void checkLatestImages(input.force === true).catch((error) => {
@@ -270,9 +278,9 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
   const containerAction = actionPath(url.pathname);
   if (method === 'POST' && containerAction) {
     if (containerAction.action === 'upgrade') {
-      return json(response, 200, {
+      return json(response, 202, {
         ok: true,
-        result: await upgradeContainer(containerAction.id),
+        task: startContainerUpgrade(containerAction.id),
       });
     }
     const paths: Record<string, string> = {
@@ -440,6 +448,7 @@ const server = createServer(async (request, response) => {
       error instanceof HttpError ||
       error instanceof DockerError ||
       error instanceof ComposeError ||
+      error instanceof UpdateError ||
       error instanceof MirrorError ||
       error instanceof MirrorValidationError ||
       error instanceof UpdateProxyError ||
@@ -448,14 +457,19 @@ const server = createServer(async (request, response) => {
         : 500;
     const code =
       error instanceof HttpError ||
+      error instanceof DockerError ||
       error instanceof ComposeError ||
+      error instanceof UpdateError ||
       error instanceof MirrorError ||
       error instanceof MirrorValidationError ||
       error instanceof UpdateProxyError ||
       error instanceof RestartError
         ? error.code
         : 'INTERNAL_ERROR';
-    const details = error instanceof HttpError || error instanceof ComposeError ? error.details : undefined;
+    const details =
+      error instanceof HttpError || error instanceof ComposeError || error instanceof UpdateError
+        ? error.details
+        : undefined;
     json(response, status, {
       error: error instanceof Error ? error.message : '服务器内部错误',
       code,

@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { proxyDispatcher } from './update-proxy.js';
 import {
   parseRegistryReference as parseReference,
+  registryCandidates,
   RegistryReferenceError,
   type RegistryReference,
 } from '../lib/registry-reference.js';
@@ -31,7 +32,7 @@ export function parseRegistryReference(image: string): RegistryReference {
 async function request(
   url: string,
   init: { method?: string; headers?: Record<string, string> },
-  timeoutMs = config.updatePullTimeoutMs,
+  timeoutMs = config.updateCheckTimeoutMs,
 ) {
   let dispatcher: Dispatcher | undefined;
   try {
@@ -86,7 +87,7 @@ async function manifestRequest(url: string, authorization: string | undefined, t
 async function tryManifestDigest(
   reference: RegistryReference,
   registryUrl: string,
-  timeoutMs = config.updatePullTimeoutMs,
+  timeoutMs = config.updateCheckTimeoutMs,
 ): Promise<string> {
   const base = registryUrl.replace(/\/$/, '');
   const url = `${base}/v2/${reference.repository}/manifests/${encodeURIComponent(reference.tag)}`;
@@ -127,7 +128,7 @@ async function tryManifestDigest(
 export async function manifestDigestFrom(
   image: string,
   registryUrl: string,
-  timeoutMs = config.updatePullTimeoutMs,
+  timeoutMs = config.updateCheckTimeoutMs,
 ) {
   const reference = parseRegistryReference(image);
   return tryManifestDigest(reference, registryUrl, timeoutMs);
@@ -135,7 +136,7 @@ export async function manifestDigestFrom(
 
 export async function remoteManifestDigest(image: string, mirrors: string[] = []) {
   const reference = parseRegistryReference(image);
-  const registries = [...mirrors, `${reference.protocol}//${reference.registry}`];
+  const registries = registryCandidates(reference, mirrors);
 
   console.log(`[Registry] 开始检查镜像 ${image}，尝试 ${registries.length} 个源:`, registries);
 

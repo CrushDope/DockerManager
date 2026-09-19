@@ -6,6 +6,7 @@ export class DockerError extends Error {
     message: string,
     readonly statusCode: number,
     readonly response?: unknown,
+    readonly code = 'DOCKER_API_ERROR',
   ) {
     super(message);
   }
@@ -18,6 +19,15 @@ type RequestOptions = {
   accept?: number[];
   timeoutMs?: number;
   raw?: boolean;
+  onData?: (chunk: Buffer) => void;
+};
+
+export type ImagePullProgress = {
+  status: string;
+  id?: string;
+  progress?: string;
+  current?: number;
+  total?: number;
 };
 
 export async function dockerRequest<T>(path: string, options: RequestOptions = {}) {
@@ -49,7 +59,11 @@ export async function dockerRequest<T>(path: string, options: RequestOptions = {
       },
       (response) => {
         const chunks: Buffer[] = [];
-        response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        response.on('data', (chunk) => {
+          const buffer = Buffer.from(chunk);
+          chunks.push(buffer);
+          options.onData?.(buffer);
+        });
         response.on('error', (error) =>
           finish(() =>
             reject(
@@ -89,9 +103,11 @@ export async function dockerRequest<T>(path: string, options: RequestOptions = {
         reject(
           error instanceof DockerError
             ? error
-            : new DockerError(
+                : new DockerError(
                 `无法连接 Docker：${error.message}。请检查 Docker Socket 挂载。`,
                 503,
+                undefined,
+                'DOCKER_UNAVAILABLE',
               ),
         ),
       ),
@@ -99,7 +115,12 @@ export async function dockerRequest<T>(path: string, options: RequestOptions = {
     if (options.timeoutMs) {
       timeout = setTimeout(() => {
         const seconds = Math.ceil(options.timeoutMs! / 1_000);
-        const error = new DockerError(`Docker 操作超过 ${seconds} 秒，已停止等待`, 504);
+        const error = new DockerError(
+          `Docker 操作超过 ${seconds} 秒，已停止等待`,
+          504,
+          undefined,
+          'DOCKER_TIMEOUT',
+        );
         request.destroy();
         finish(() => reject(error));
       }, options.timeoutMs);
@@ -110,17 +131,63 @@ export async function dockerRequest<T>(path: string, options: RequestOptions = {
   });
 }
 
-export async function pullImage(image: string) {
-  const response = await dockerRequest<string>(
-    `/images/create?fromImage=${encodeURIComponent(image)}`,
-    {
-      method: 'POST',
-      headers: {
-        'X-Registry-Auth': Buffer.from('{}').toString('base64'),
+export async function pullImage(
+  image: string,
+  onProgress?: (progress: ImagePullProgress) => void,
+) {
+  const startedAt = Date.now();
+  console.log(`[镜像拉取] 开始：${image}，超时 ${Math.round(config.updatePullTimeoutMs / 1_000)} 秒`);
+  let response: string;
+  try {
+    let pending = '';
+    const parseLines = (flush = false) => {
+      const lines = pending.split('\n');
+      pending = flush ? '' : lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const record = JSON.parse(line) as {
+            status?: string;
+            id?: string;
+            progress?: string;
+            progressDetail?: { current?: number; total?: number };
+          };
+          if (record.status) {
+            onProgress?.({
+              status: record.status,
+              id: record.id,
+              progress: record.progress,
+              current: record.progressDetail?.current,
+              total: record.progressDetail?.total,
+            });
+          }
+        } catch {
+          // Docker progress is newline-delimited JSON; malformed lines are reported by the final parser.
+        }
+      }
+    };
+    response = await dockerRequest<string>(
+      `/images/create?fromImage=${encodeURIComponent(image)}`,
+      {
+        method: 'POST',
+        headers: {
+          'X-Registry-Auth': Buffer.from('{}').toString('base64'),
+        },
+        timeoutMs: config.updatePullTimeoutMs,
+        onData: (chunk) => {
+          pending += chunk.toString('utf8');
+          parseLines();
+        },
       },
-      timeoutMs: config.updatePullTimeoutMs,
-    },
-  );
+    );
+    if (pending.trim()) {
+      pending += '\n';
+      parseLines(true);
+    }
+  } catch (error) {
+    console.error(`[镜像拉取] 失败：${image}`, error);
+    throw error;
+  }
   const records = String(response || '')
     .split('\n')
     .filter(Boolean)
@@ -132,7 +199,12 @@ export async function pullImage(image: string) {
       }
     });
   const failed = records.find((record) => record.error || record.errorDetail?.message);
-  if (failed) throw new DockerError(failed.errorDetail?.message || failed.error!, 502);
+  if (failed) {
+    const message = failed.errorDetail?.message || failed.error!;
+    console.error(`[镜像拉取] 失败：${image}：${message}`);
+    throw new DockerError(message, 502, failed, 'IMAGE_PULL_FAILED');
+  }
+  console.log(`[镜像拉取] 完成：${image}，耗时 ${Date.now() - startedAt} ms`);
 }
 
 export type DockerContainer = {
@@ -198,6 +270,8 @@ export async function dockerInfo() {
 }
 
 export function idPath(id: string) {
-  if (!/^[a-f0-9]{12,64}$/i.test(id)) throw new DockerError('容器 ID 无效', 400);
+  if (!/^[a-f0-9]{12,64}$/i.test(id)) {
+    throw new DockerError('容器 ID 无效', 400, undefined, 'CONTAINER_ID_INVALID');
+  }
   return encodeURIComponent(id);
 }

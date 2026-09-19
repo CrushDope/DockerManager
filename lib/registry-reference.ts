@@ -29,3 +29,14 @@ export function parseRegistryReference(image: string): RegistryReference {
   const protocol = registry === 'localhost' || registry.startsWith('localhost:') || registry.startsWith('127.') ? 'http:' : 'https:';
   return { registry, repository, tag, protocol };
 }
+
+export function registryCandidates(reference: RegistryReference, mirrors: string[]) {
+  const origin = `${reference.protocol}//${reference.registry}`;
+  return [
+    ...new Set(
+      reference.registry === 'registry-1.docker.io'
+        ? [...mirrors.map((mirror) => mirror.replace(/\/$/, '')), origin]
+        : [origin],
+    ),
+  ];
+}
